@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
+@Slf4j
 @Component
 public class StorageInitializer implements BeanPostProcessor {
 
@@ -37,16 +38,19 @@ public class StorageInitializer implements BeanPostProcessor {
     @Value("${storage.trainee.file}")
     public void setTraineeFile(String traineeFile) {
         this.traineeFile = traineeFile;
+        log.debug("Trainee seed file set to {}", traineeFile);
     }
 
     @Value("${storage.trainer.file}")
     public void setTrainerFile(String trainerFile) {
         this.trainerFile = trainerFile;
+        log.debug("Trainer seed file set to {}", trainerFile);
     }
 
     @Value("${storage.training.file}")
     public void setTrainingFile(String trainingFile) {
         this.trainingFile = trainingFile;
+        log.debug("Training seed file set to {}", trainingFile);
     }
 
     @Override
@@ -68,14 +72,18 @@ public class StorageInitializer implements BeanPostProcessor {
 
     private <T> void load(Map<UUID, T> storage, String path, TypeReference<List<T>> type,
                           Function<T, UUID> idExtractor, String beanName) {
+        log.debug("Initializing {} from {}", beanName, path);
         Resource resource = resourceLoader.getResource(path);
         if (!resource.exists()) {
+            log.warn("Seed file {} not found, {} starts empty", path, beanName);
             return;
         }
         try (InputStream in = resource.getInputStream()) {
             List<T> items = objectMapper.readValue(in, type);
             items.forEach(item -> storage.put(idExtractor.apply(item), item));
+            log.info("Loaded {} records into {} from {}", items.size(), beanName, path);
         } catch (IOException e) {
+            log.error("Failed to load {} from {}", beanName, path, e);
             throw new IllegalStateException("Failed to load " + beanName + " from " + path, e);
         }
     }

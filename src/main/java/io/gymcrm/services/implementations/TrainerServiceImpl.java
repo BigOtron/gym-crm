@@ -5,6 +5,7 @@ import io.gymcrm.entities.Trainer;
 import io.gymcrm.services.TrainerService;
 import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +14,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class TrainerServiceImpl implements TrainerService {
     private TrainerDao trainerDao;
@@ -31,48 +33,70 @@ public class TrainerServiceImpl implements TrainerService {
 
     @Override
     public Trainer create(Trainer trainer) {
+        log.debug("Creating trainer {} {}", trainer == null ? null : trainer.getFirstName(),
+                trainer == null ? null : trainer.getLastName());
         validate(trainer);
         trainer.setUserId(null);
         trainer.setUsername(usernameGenerator.generate(trainer.getFirstName(), trainer.getLastName()));
         trainer.setPassword(passwordGenerator.generate());
         trainer.setActive(true);
 
-        return trainerDao.create(trainer);
+        Trainer created = trainerDao.create(trainer);
+        log.info("Trainer created: {} (id {}), specialization {}",
+                created.getUsername(), created.getUserId(), created.getSpecialization());
+        return created;
     }
 
     @Override
     public Trainer update(Trainer trainer) {
+        log.debug("Updating trainer with id {}", trainer == null ? null : trainer.getUserId());
         validate(trainer);
         Trainer existing = getById(trainer.getUserId());
 
         trainer.setUsername(existing.getUsername());
         trainer.setPassword(existing.getPassword());
 
-        return trainerDao.update(trainer);
+        Trainer updated = trainerDao.update(trainer);
+        log.info("Trainer updated: {} (id {})", updated.getUsername(), updated.getUserId());
+        return updated;
     }
 
     @Override
     public Trainer getById(UUID userId) {
+        log.debug("Selecting trainer by id {}", userId);
         return trainerDao.findById(userId)
-                .orElseThrow(() -> new NoSuchElementException("No trainer with id " + userId));
+                .orElseThrow(() -> {
+                    log.warn("Trainer not found by id {}", userId);
+                    return new NoSuchElementException("No trainer with id " + userId);
+                });
     }
 
     @Override
     public Trainer getByUsername(String username) {
+        log.debug("Selecting trainer by username {}", username);
         return trainerDao.findByUsername(username)
-                .orElseThrow(() -> new NoSuchElementException("No trainer with id " + username));
+                .orElseThrow(() -> {
+                    log.warn("Trainer not found by username {}", username);
+                    return new NoSuchElementException("No trainer with username " + username);
+                });
     }
 
     @Override
     public List<Trainer> getAll() {
-        return trainerDao.findAll();
+        List<Trainer> all = trainerDao.findAll();
+        log.debug("Selected all trainers ({} records)", all.size());
+        return all;
     }
+
     private void validate(Trainer trainer) {
         Objects.requireNonNull(trainer, "trainer must not be null");
         if (isBlank(trainer.getFirstName()) || isBlank(trainer.getLastName())) {
+            log.warn("Rejected trainer without first or last name (id {})", trainer.getUserId());
             throw new IllegalArgumentException("First name and last name are required");
         }
         if (trainer.getSpecialization().isEmpty()) {
+            log.warn("Rejected trainer {} {} without specialization",
+                    trainer.getFirstName(), trainer.getLastName());
             throw new IllegalArgumentException("Trainer must have at least one specialization");
         }
     }

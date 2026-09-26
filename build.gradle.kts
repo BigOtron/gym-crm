@@ -13,6 +13,7 @@ dependencies {
     implementation(libs.spring.context)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.datatype)
+    implementation(libs.logback.classic)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

@@ -6,16 +6,24 @@ import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.entities.TrainingType;
 import io.gymcrm.facade.GymFacade;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.time.Duration;
 import java.time.LocalDate;
 
+@Slf4j
 public class Application {
 
     public static void main(String[] args) {
+        log.info("Starting Gym CRM");
         try (var context = new AnnotationConfigApplicationContext(AppConfig.class)) {
             GymFacade facade = context.getBean(GymFacade.class);
+
+            log.info("Storage contains {} trainees, {} trainers, {} trainings",
+                    facade.getAllTrainees().size(),
+                    facade.getAllTrainers().size(),
+                    facade.getAllTrainings().size());
 
             Trainee trainee = new Trainee();
             trainee.setFirstName("John");
@@ -43,7 +51,16 @@ public class Application {
             namesake.setFirstName("John");
             namesake.setLastName("Smith");
             namesake = facade.createTrainee(namesake);
+            log.info("Second John Smith got username {}", namesake.getUsername());
 
+            log.info("Storage now contains {} trainees, {} trainers, {} trainings",
+                    facade.getAllTrainees().size(),
+                    facade.getAllTrainers().size(),
+                    facade.getAllTrainings().size());
+        } catch (RuntimeException e) {
+            log.error("Gym CRM failed", e);
+            throw e;
         }
+        log.info("Gym CRM stopped");
     }
 }

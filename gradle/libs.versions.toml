@@ -3,6 +3,7 @@ junit-bom = "6.0.0"
 spring-context = "7.1.0-M1"
 lombok = "1.18.46"
 jackson = "2.22.2"
+logback = "1.5.18"
 
 [libraries]
 junit-bom = { group = "org.junit", name = "junit-bom", version.ref = "junit-bom" }
@@ -12,3 +13,4 @@ spring-context = { group = "org.springframework", name = "spring-context", versi
 lombok = { group = "org.projectlombok", name = "lombok", version.ref = "lombok" }
 jackson-databind = { group = "com.fasterxml.jackson.core", name = "jackson-databind", version.ref = "jackson" }
 jackson-datatype = { group = "com.fasterxml.jackson.datatype", name = "jackson-datatype-jsr310", version.ref = "jackson" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
