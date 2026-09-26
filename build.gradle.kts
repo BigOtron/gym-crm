@@ -11,6 +11,8 @@ repositories {
 
 dependencies {
     implementation(libs.spring.context)
+    implementation(libs.jackson.databind)
+    implementation(libs.jackson.datatype)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
