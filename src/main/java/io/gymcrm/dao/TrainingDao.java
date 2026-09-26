@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface TrainingDao {
-    Training create(Training Training);
+    Training create(Training training);
     Optional<Training> findById(UUID trainingId);
     List<Training> findAll();
 }

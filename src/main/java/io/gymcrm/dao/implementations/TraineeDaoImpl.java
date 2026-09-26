@@ -10,7 +10,6 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.UUID;
 
 
@@ -44,20 +43,28 @@ public class TraineeDaoImpl implements TraineeDao {
     }
 
     @Override
-    public boolean delete(UUID userId) {
-        return storage.remove(userId) != null;
+    public void delete(UUID userId) {
+        if (storage.remove(userId) == null) {
+            throw new NoSuchElementException("Trainee not found: " + userId);
+        }
     }
 
     @Override
-    public Optional<Trainee> findById(UUID userId) {
-        return Optional.ofNullable(storage.get(userId));
+    public Trainee findById(UUID userId) {
+        Trainee trainee = storage.get(userId);
+        if (trainee == null) {
+            throw new NoSuchElementException("Trainee not found: " + userId);
+        }
+
+        return trainee;
     }
 
     @Override
-    public Optional<Trainee> findByUsername(String username) {
+    public Trainee findByUsername(String username) {
         return storage.values().stream()
                 .filter(t -> t.getUsername().equals(username))
-                .findFirst();
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("Trainee not found: " + username));
     }
 
     @Override

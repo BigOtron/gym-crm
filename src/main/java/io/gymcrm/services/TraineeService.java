@@ -1,16 +1,15 @@
-package io.gymcrm.dao;
+package io.gymcrm.services;
 
 import io.gymcrm.entities.Trainee;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
-public interface TraineeDao {
+public interface TraineeService {
     Trainee create(Trainee trainee);
     Trainee update(Trainee trainee);
     void delete(UUID userId);
-    Trainee findById(UUID userId);
-    Trainee findByUsername(String username);
-    List<Trainee> findAll();
+    Trainee getById(UUID userId);
+    Trainee getByUsername(String username);
+    List<Trainee> getAll();
 }
