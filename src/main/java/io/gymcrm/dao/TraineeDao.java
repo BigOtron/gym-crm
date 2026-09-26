@@ -10,7 +10,7 @@ public interface TraineeDao {
     Trainee create(Trainee trainee);
     Trainee update(Trainee trainee);
     void delete(UUID userId);
-    Trainee findById(UUID userId);
+    Optional<Trainee> findById(UUID userId);
     Trainee findByUsername(String username);
     List<Trainee> findAll();
 }

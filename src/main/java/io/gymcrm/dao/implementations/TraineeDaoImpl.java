@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -57,14 +58,8 @@ public class TraineeDaoImpl implements TraineeDao {
     }
 
     @Override
-    public Trainee findById(UUID userId) {
-        Trainee trainee = storage.get(userId);
-        if (trainee == null) {
-            log.debug("No trainee with id {}", userId);
-            throw new NoSuchElementException("Trainee not found: " + userId);
-        }
-        log.debug("Found trainee {} by id {}", trainee.getUsername(), userId);
-        return trainee;
+    public Optional<Trainee> findById(UUID userId) {
+        return Optional.ofNullable(storage.get(userId));
     }
 
     @Override

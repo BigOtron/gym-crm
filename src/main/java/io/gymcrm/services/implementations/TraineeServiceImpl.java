@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -18,7 +19,7 @@ import java.util.UUID;
 public class TraineeServiceImpl implements TraineeService {
     private TraineeDao traineeDao;
     private UsernameGenerator usernameGenerator;
-    private final PasswordGenerator passwordGenerator = new PasswordGenerator();
+    private PasswordGenerator passwordGenerator;
 
     @Autowired
     public void setTraineeDao(TraineeDao traineeDao) {
@@ -28,6 +29,11 @@ public class TraineeServiceImpl implements TraineeService {
     @Autowired
     public void setUsernameGenerator(UsernameGenerator usernameGenerator) {
         this.usernameGenerator = usernameGenerator;
+    }
+
+    @Autowired
+    public void setPasswordGenerator(PasswordGenerator passwordGenerator) {
+        this.passwordGenerator = passwordGenerator;
     }
 
     @Override
@@ -69,7 +75,8 @@ public class TraineeServiceImpl implements TraineeService {
     @Override
     public Trainee getById(UUID userId) {
         log.debug("Selecting trainee by id {}", userId);
-        return traineeDao.findById(userId);
+        return traineeDao.findById(userId)
+                .orElseThrow(() -> new NoSuchElementException("No trainee found with id " + userId));
     }
 
     @Override

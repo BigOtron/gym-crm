@@ -19,7 +19,7 @@ import java.util.UUID;
 public class TrainerServiceImpl implements TrainerService {
     private TrainerDao trainerDao;
     private UsernameGenerator usernameGenerator;
-    private final PasswordGenerator passwordGenerator = new PasswordGenerator();
+    private PasswordGenerator passwordGenerator;
 
     @Autowired
     public void setTrainerDao(TrainerDao trainerDao) {
@@ -29,6 +29,11 @@ public class TrainerServiceImpl implements TrainerService {
     @Autowired
     public void setUsernameGenerator(UsernameGenerator usernameGenerator) {
         this.usernameGenerator = usernameGenerator;
+    }
+
+    @Autowired
+    public void setPasswordGenerator(PasswordGenerator passwordGenerator) {
+        this.passwordGenerator = passwordGenerator;
     }
 
     @Override
