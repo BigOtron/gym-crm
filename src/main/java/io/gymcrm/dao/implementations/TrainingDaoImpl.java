@@ -26,7 +26,8 @@ public class TrainingDaoImpl implements TrainingDao {
         if (training.getTrainingId() == null) {
             training.setTrainingId(UUID.randomUUID());
         }
-        return storage.put(training.getTrainingId(), training);
+        storage.put(training.getTrainingId(), training);
+        return training;
     }
 
     @Override

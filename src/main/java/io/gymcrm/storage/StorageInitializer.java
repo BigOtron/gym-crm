@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
-@Slf4j
 @Component
 public class StorageInitializer implements BeanPostProcessor {
 

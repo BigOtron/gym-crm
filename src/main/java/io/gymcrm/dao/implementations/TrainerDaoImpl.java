@@ -28,7 +28,8 @@ public class TrainerDaoImpl implements TrainerDao {
         if (trainer.getUserId() == null) {
             trainer.setUserId(UUID.randomUUID());
         }
-        return storage.put(trainer.getUserId(), trainer);
+        storage.put(trainer.getUserId(), trainer);
+        return trainer;
     }
 
     @Override
@@ -37,7 +38,8 @@ public class TrainerDaoImpl implements TrainerDao {
         if (id == null || !storage.containsKey(id)) {
             throw new NoSuchElementException("Trainer not found: " + id);
         }
-        return storage.put(id, trainer);
+        storage.put(id, trainer);
+        return trainer;
     }
 
     @Override
