@@ -11,6 +11,6 @@ public interface TraineeDao {
     Trainee update(Trainee trainee);
     void delete(UUID userId);
     Optional<Trainee> findById(UUID userId);
-    Trainee findByUsername(String username);
+    Optional<Trainee> findByUsername(String username);
     List<Trainee> findAll();
 }

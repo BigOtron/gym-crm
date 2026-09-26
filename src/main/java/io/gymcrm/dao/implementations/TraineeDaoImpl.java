@@ -63,14 +63,10 @@ public class TraineeDaoImpl implements TraineeDao {
     }
 
     @Override
-    public Trainee findByUsername(String username) {
-        Trainee trainee = storage.values().stream()
+    public Optional<Trainee> findByUsername(String username) {
+        Optional<Trainee> trainee = storage.values().stream()
                 .filter(t -> username.equals(t.getUsername()))
-                .findFirst()
-                .orElseThrow(() -> {
-                    log.debug("No trainee with username {}", username);
-                    return new NoSuchElementException("Trainee not found: " + username);
-                });
+                .findFirst();
         log.debug("Found trainee by username {}", username);
         return trainee;
     }

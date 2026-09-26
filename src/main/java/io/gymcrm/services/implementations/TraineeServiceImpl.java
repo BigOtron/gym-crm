@@ -82,7 +82,8 @@ public class TraineeServiceImpl implements TraineeService {
     @Override
     public Trainee getByUsername(String username) {
         log.debug("Selecting trainee by username {}", username);
-        return traineeDao.findByUsername(username);
+        return traineeDao.findByUsername(username)
+                .orElseThrow(() -> new NoSuchElementException("No trainee found with id " + username));
     }
 
     @Override
