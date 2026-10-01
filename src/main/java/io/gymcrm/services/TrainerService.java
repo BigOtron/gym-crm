@@ -1,14 +1,18 @@
 package io.gymcrm.services;
 
+import io.gymcrm.dto.TrainerRegistration;
+import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainer;
 
 import java.util.List;
-import java.util.UUID;
 
 public interface TrainerService {
-    Trainer create(Trainer trainer);
-    Trainer update(Trainer trainer);
-    Trainer getById(UUID userId);
+    Trainer create(TrainerRegistration registration);
     Trainer getByUsername(String username);
-    List<Trainer> getAll();
+    void changePassword(String username, String newPassword);
+    Trainer update(String username, TrainerUpdate update);
+
+    boolean toggleActive(String username);
+
+    List<Trainer> getNotAssignedToTrainee(String traineeUsername);
 }

@@ -1,15 +1,21 @@
 package io.gymcrm.services;
 
+import io.gymcrm.dto.TraineeRegistration;
+import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
+import io.gymcrm.entities.Trainer;
 
 import java.util.List;
-import java.util.UUID;
 
 public interface TraineeService {
-    Trainee create(Trainee trainee);
-    Trainee update(Trainee trainee);
-    void delete(UUID userId);
-    Trainee getById(UUID userId);
+    Trainee create(TraineeRegistration registration);
     Trainee getByUsername(String username);
-    List<Trainee> getAll();
+    void changePassword(String username, String newPassword);
+    Trainee update(String username, TraineeUpdate update);
+
+    boolean toggleActive(String username);
+
+    void deleteByUsername(String username);
+
+    List<Trainer> updateTrainers(String username, List<String> trainerUsernames);
 }

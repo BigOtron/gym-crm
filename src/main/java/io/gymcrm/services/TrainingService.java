@@ -1,12 +1,14 @@
 package io.gymcrm.services;
 
+import io.gymcrm.dto.NewTraining;
+import io.gymcrm.dto.TraineeTrainingCriteria;
+import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.entities.Training;
 
 import java.util.List;
-import java.util.UUID;
 
 public interface TrainingService {
-    Training create(Training training);
-    Training getById(UUID trainingId);
-    List<Training> getAll();
+    Training create(NewTraining newTraining);
+    List<Training> getTraineeTrainings(String traineeUsername, TraineeTrainingCriteria criteria);
+    List<Training> getTrainerTrainings(String trainerUsername, TrainerTrainingCriteria criteria);
 }

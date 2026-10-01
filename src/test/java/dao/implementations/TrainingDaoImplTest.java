@@ -1,95 +1,165 @@
 package dao.implementations;
 
-import io.gymcrm.dao.implementations.TrainingDaoImpl;
+import io.gymcrm.dao.TrainingDao;
+import io.gymcrm.dto.TraineeTrainingCriteria;
+import io.gymcrm.dto.TrainerTrainingCriteria;
+import io.gymcrm.entities.Trainee;
+import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
-import io.gymcrm.entities.TrainingType;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import support.DaoTestBase;
 
-import java.time.Duration;
 import java.time.LocalDate;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class TrainingDaoImplTest {
+class TrainingDaoImplTest extends DaoTestBase {
 
-    private Map<UUID, Training> storage;
-    private TrainingDaoImpl dao;
+    private static final LocalDate SEP_1 = LocalDate.of(2026, 9, 1);
+    private static final LocalDate SEP_15 = LocalDate.of(2026, 9, 15);
+    private static final LocalDate SEP_20 = LocalDate.of(2026, 9, 20);
+
+    @Autowired
+    private TrainingDao trainingDao;
+
+    private Trainee john;
+    private Trainee maria;
+    private Trainer anna;
+    private Trainer david;
 
     @BeforeEach
-    void setUp() {
-        storage = new HashMap<>();
-        dao = new TrainingDaoImpl();
-        dao.setStorage(storage);
+    void createPeople() {
+        john = persistTrainee("John", "Smith", "John.Smith");
+        maria = persistTrainee("Maria", "Garcia", "Maria.Garcia");
+        anna = persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        david = persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
     }
 
-    private static Training training(String name) {
-        Training training = new Training();
-        training.setTraineeId(UUID.randomUUID());
-        training.setTrainerId(UUID.randomUUID());
-        training.setTrainingName(name);
-        training.setTrainingType(TrainingType.YOGA);
-        training.setTrainingDate(LocalDate.of(2026, 9, 26));
-        training.setTrainingDuration(Duration.ofMinutes(60));
-        return training;
+    private static List<String> names(List<Training> trainings) {
+        return trainings.stream().map(Training::getTrainingName).toList();
     }
 
-    @Test
-    void createAssignsIdAndStoresTraining() {
-        Training training = training("Morning yoga");
-
-        Training result = dao.create(training);
-
-        assertSame(training, result);
-        assertNotNull(result.getTrainingId());
-        assertSame(training, storage.get(result.getTrainingId()));
+    private List<String> johnsTrainings(TraineeTrainingCriteria criteria) {
+        return names(trainingDao.findTraineeTrainings("John.Smith", criteria));
     }
 
-    @Test
-    void createKeepsExistingId() {
-        UUID id = UUID.randomUUID();
-        Training training = training("Morning yoga");
-        training.setTrainingId(id);
+    private List<String> annasTrainings(TrainerTrainingCriteria criteria) {
+        return names(trainingDao.findTrainerTrainings("Anna.Lee", criteria));
+    }
 
-        dao.create(training);
-
-        assertEquals(id, training.getTrainingId());
-        assertSame(training, storage.get(id));
+    private void givenTrainings() {
+        persistTraining(john, anna, "Yoga 2", SEP_15);
+        persistTraining(john, anna, "Yoga 1", SEP_1);
+        persistTraining(john, david, "Lifting", SEP_20);
+        persistTraining(maria, anna, "Maria yoga", SEP_15);
+        flushAndClear();
     }
 
     @Test
-    void findByIdReturnsStoredTraining() {
-        Training training = dao.create(training("Morning yoga"));
+    void saveAssignsId() {
+        Training training = persistTraining(john, anna, "Yoga 1", SEP_1);
 
-        Optional<Training> result = dao.findById(training.getTrainingId());
+        trainingDao.save(training);
+        entityManager.flush();
 
-        assertTrue(result.isPresent());
-        assertSame(training, result.get());
+        assertNotNull(training.getId());
     }
 
     @Test
-    void findByIdUnknownReturnsEmpty() {
-        assertTrue(dao.findById(UUID.randomUUID()).isEmpty());
+    void traineeTrainingsWithoutCriteriaAreSortedByDate() {
+        givenTrainings();
+
+        assertEquals(List.of("Yoga 1", "Yoga 2", "Lifting"), johnsTrainings(TraineeTrainingCriteria.none()));
     }
 
     @Test
-    void findAllReturnsUnmodifiableSnapshot() {
-        dao.create(training("Morning yoga"));
+    void traineeTrainingsByDateRangeIncludeBothEnds() {
+        givenTrainings();
 
-        List<Training> all = dao.findAll();
-        dao.create(training("Evening yoga"));
+        assertEquals(List.of("Yoga 2", "Lifting"), johnsTrainings(new TraineeTrainingCriteria(SEP_15, null, null, null)));
+        assertEquals(List.of("Yoga 1", "Yoga 2"), johnsTrainings(new TraineeTrainingCriteria(null, SEP_15, null, null)));
+        assertEquals(List.of("Yoga 2"), johnsTrainings(new TraineeTrainingCriteria(SEP_15, SEP_15, null, null)));
+    }
 
-        assertEquals(1, all.size());
-        Training extra = training("Extra");
-        assertThrows(UnsupportedOperationException.class, () -> all.add(extra));
+    @Test
+    void traineeTrainingsByTrainerName() {
+        givenTrainings();
+
+        assertEquals(List.of("Yoga 1", "Yoga 2"), johnsTrainings(new TraineeTrainingCriteria(null, null, "anna", null)));
+        assertEquals(List.of("Yoga 1", "Yoga 2"), johnsTrainings(new TraineeTrainingCriteria(null, null, "LEE", null)));
+        assertEquals(List.of("Lifting"), johnsTrainings(new TraineeTrainingCriteria(null, null, " David Brown ", null)));
+        assertTrue(johnsTrainings(new TraineeTrainingCriteria(null, null, "Nobody", null)).isEmpty());
+    }
+
+    @Test
+    void blankTrainerNameIsIgnored() {
+        givenTrainings();
+
+        assertEquals(3, johnsTrainings(new TraineeTrainingCriteria(null, null, "  ", null)).size());
+    }
+
+    @Test
+    void traineeTrainingsByTrainingType() {
+        givenTrainings();
+
+        assertEquals(List.of("Lifting"), johnsTrainings(new TraineeTrainingCriteria(null, null, null, "heavy lifting")));
+        assertTrue(johnsTrainings(new TraineeTrainingCriteria(null, null, null, "Running")).isEmpty());
+    }
+
+    @Test
+    void traineeTrainingsWithAllCriteria() {
+        givenTrainings();
+
+        assertEquals(List.of("Yoga 2"), johnsTrainings(new TraineeTrainingCriteria(SEP_15, SEP_20, "Anna", "Yoga")));
+    }
+
+    @Test
+    void trainerTrainingsWithoutCriteria() {
+        givenTrainings();
+
+        List<String> trainings = annasTrainings(TrainerTrainingCriteria.none());
+
+        // "Yoga 2" and "Maria yoga" are on the same day, so only the first position is fixed.
+        assertEquals("Yoga 1", trainings.get(0));
+        assertEquals(Set.of("Yoga 1", "Yoga 2", "Maria yoga"), Set.copyOf(trainings));
+    }
+
+    @Test
+    void trainerTrainingsByTraineeNameAndDates() {
+        givenTrainings();
+
+        assertEquals(List.of("Maria yoga"), annasTrainings(new TrainerTrainingCriteria(null, null, "garcia")));
+        assertEquals(List.of("Yoga 1"), annasTrainings(new TrainerTrainingCriteria(null, SEP_1, null)));
+        assertEquals(List.of("Yoga 2"), annasTrainings(new TrainerTrainingCriteria(SEP_15, null, "John")));
+    }
+
+    @Test
+    void trainingsOfUnknownUserAreEmpty() {
+        givenTrainings();
+
+        assertTrue(trainingDao.findTraineeTrainings("Nobody", TraineeTrainingCriteria.none()).isEmpty());
+        assertTrue(trainingDao.findTrainerTrainings("Nobody", TrainerTrainingCriteria.none()).isEmpty());
+    }
+
+    @Test
+    void associationsAreFetchedWithTheTrainings() {
+        givenTrainings();
+
+        Training training = trainingDao.findTraineeTrainings("John.Smith", TraineeTrainingCriteria.none()).get(0);
+
+        // The test transaction would hide lazy loading, so check that nothing is left to load.
+        assertTrue(Hibernate.isInitialized(training.getTrainee()));
+        assertTrue(Hibernate.isInitialized(training.getTrainer()));
+        assertTrue(Hibernate.isInitialized(training.getTrainer().getUser()));
+        assertTrue(Hibernate.isInitialized(training.getTrainee().getUser()));
+        assertEquals("Anna", training.getTrainer().getUser().getFirstName());
+        assertEquals("Yoga", training.getTrainingType().getTrainingTypeName());
     }
 }
