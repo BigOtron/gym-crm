@@ -7,6 +7,8 @@
     </appender>
     <logger name="io.gymcrm" level="DEBUG"/>
     <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
     </root>

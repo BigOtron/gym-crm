@@ -3,40 +3,41 @@ package services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingDao;
+import io.gymcrm.dto.NewTraining;
+import io.gymcrm.dto.TraineeTrainingCriteria;
+import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
-import io.gymcrm.entities.TrainingType;
+import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.implementations.TrainingServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static support.TestData.YOGA;
+import static support.TestData.trainee;
+import static support.TestData.trainer;
 
 @ExtendWith(MockitoExtension.class)
 class TrainingServiceImplTest {
 
-    private static final UUID TRAINEE_ID = UUID.randomUUID();
-    private static final UUID TRAINER_ID = UUID.randomUUID();
+    private static final LocalDate DATE = LocalDate.of(2026, 9, 20);
 
     @Mock
     private TrainingDao trainingDao;
@@ -57,150 +58,83 @@ class TrainingServiceImplTest {
         service.setTrainerDao(trainerDao);
     }
 
-    private static Training training(TrainingType type) {
-        Training training = new Training();
-        training.setTraineeId(TRAINEE_ID);
-        training.setTrainerId(TRAINER_ID);
-        training.setTrainingName("Morning session");
-        training.setTrainingType(type);
-        training.setTrainingDate(LocalDate.of(2026, 9, 26));
-        training.setTrainingDuration(Duration.ofMinutes(60));
-        return training;
-    }
-
-    private static Trainee trainee() {
-        Trainee trainee = new Trainee();
-        trainee.setUserId(TRAINEE_ID);
-        trainee.setUsername("John.Smith");
-        return trainee;
-    }
-
-    private static Trainer trainer(TrainingType... types) {
-        Trainer trainer = new Trainer();
-        trainer.setUserId(TRAINER_ID);
-        trainer.setUsername("Anna.Lee");
-        for (TrainingType type : types) {
-            trainer.addSpecialization(type);
-        }
-        return trainer;
-    }
-
-    // create
-
-    @Test
-    void createSavesValidTraining() {
-        Training input = training(TrainingType.YOGA);
-        when(traineeDao.findById(TRAINEE_ID)).thenReturn(Optional.of(trainee()));
-        when(trainerDao.findById(TRAINER_ID)).thenReturn(Optional.of(trainer(TrainingType.YOGA)));
-        when(trainingDao.create(any(Training.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        Training result = service.create(input);
-
-        assertSame(input, result);
-        verify(trainingDao).create(input);
+    private static NewTraining newTraining(Integer duration) {
+        return new NewTraining("John.Smith", "Anna.Lee", "Evening yoga", DATE, duration);
     }
 
     @Test
-    void createClearsIncomingId() {
-        Training input = training(TrainingType.YOGA);
-        input.setTrainingId(UUID.randomUUID());
-        when(traineeDao.findById(TRAINEE_ID)).thenReturn(Optional.of(trainee()));
-        when(trainerDao.findById(TRAINER_ID)).thenReturn(Optional.of(trainer(TrainingType.YOGA)));
-        when(trainingDao.create(any(Training.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    void createUsesTrainerSpecializationAndLinksTrainer() {
+        Trainee trainee = trainee("John.Smith", "pw");
+        Trainer trainer = trainer("Anna.Lee", "pw", YOGA);
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee));
+        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer));
+        when(trainingDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Training result = service.create(input);
+        Training created = service.create(newTraining(60));
 
-        assertNull(result.getTrainingId());
+        assertSame(trainee, created.getTrainee());
+        assertSame(trainer, created.getTrainer());
+        assertSame(YOGA, created.getTrainingType());
+        assertEquals(60, created.getTrainingDuration());
+        assertEquals(DATE, created.getTrainingDate());
+        assertTrue(trainee.getTrainers().contains(trainer));
     }
 
     @Test
-    void createWithUnknownTraineeThrows() {
-        Training input = training(TrainingType.YOGA);
-        when(traineeDao.findById(TRAINEE_ID)).thenReturn(Optional.empty());
+    void createRejectsUnknownTrainee() {
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> service.create(input));
-        verify(trainingDao, never()).create(any());
+        assertThrows(NotFoundException.class, () -> service.create(newTraining(60)));
+        verifyNoInteractions(trainerDao);
+        verify(trainingDao, never()).save(any());
     }
 
     @Test
-    void createWithUnknownTrainerThrows() {
-        Training input = training(TrainingType.YOGA);
-        when(traineeDao.findById(TRAINEE_ID)).thenReturn(Optional.of(trainee()));
-        when(trainerDao.findById(TRAINER_ID)).thenReturn(Optional.empty());
+    void createRejectsUnknownTrainer() {
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "pw")));
+        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> service.create(input));
-        verify(trainingDao, never()).create(any());
+        assertThrows(NotFoundException.class, () -> service.create(newTraining(60)));
+        verify(trainingDao, never()).save(any());
     }
 
     @Test
-    void createWithTypeTrainerDoesNotTeachThrows() {
-        Training input = training(TrainingType.YOGA);
-        when(traineeDao.findById(TRAINEE_ID)).thenReturn(Optional.of(trainee()));
-        when(trainerDao.findById(TRAINER_ID)).thenReturn(Optional.of(trainer(TrainingType.FITNESS)));
-
-        assertThrows(IllegalArgumentException.class, () -> service.create(input));
-        verify(trainingDao, never()).create(any());
-    }
-
-    @Test
-    void createWithMissingNameThrows() {
-        Training input = training(TrainingType.YOGA);
-        input.setTrainingName(" ");
-
-        assertThrows(IllegalArgumentException.class, () -> service.create(input));
+    void createRejectsInvalidFields() {
+        assertThrows(IllegalArgumentException.class, () -> service.create(newTraining(0)));
+        assertThrows(IllegalArgumentException.class, () -> service.create(newTraining(-5)));
+        assertThrows(IllegalArgumentException.class, () -> service.create(newTraining(null)));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.create(new NewTraining("John.Smith", "Anna.Lee", " ", DATE, 60)));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.create(new NewTraining("John.Smith", "Anna.Lee", "Yoga", null, 60)));
         verifyNoInteractions(traineeDao, trainerDao, trainingDao);
     }
 
     @Test
-    void createWithMissingDateThrows() {
-        Training input = training(TrainingType.YOGA);
-        input.setTrainingDate(null);
+    void traineeTrainingsPassCriteriaToDao() {
+        var criteria = new TraineeTrainingCriteria(DATE, null, "Anna", "Yoga");
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "pw")));
+        when(trainingDao.findTraineeTrainings("John.Smith", criteria)).thenReturn(List.of());
 
-        assertThrows(IllegalArgumentException.class, () -> service.create(input));
-        verifyNoInteractions(traineeDao, trainerDao, trainingDao);
-    }
-
-    @ParameterizedTest
-    @ValueSource(longs = {0, -30})
-    void createWithNonPositiveDurationThrows(long minutes) {
-        Training input = training(TrainingType.YOGA);
-        input.setTrainingDuration(Duration.ofMinutes(minutes));
-
-        assertThrows(IllegalArgumentException.class, () -> service.create(input));
-        verifyNoInteractions(traineeDao, trainerDao, trainingDao);
+        assertEquals(List.of(), service.getTraineeTrainings("John.Smith", criteria));
     }
 
     @Test
-    void createNullThrows() {
-        assertThrows(NullPointerException.class, () -> service.create(null));
-        verifyNoInteractions(traineeDao, trainerDao, trainingDao);
-    }
+    void nullCriteriaMeansNoFilter() {
+        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA)));
 
-    // select
+        service.getTrainerTrainings("Anna.Lee", null);
 
-    @Test
-    void getByIdReturnsTraining() {
-        UUID id = UUID.randomUUID();
-        Training stored = training(TrainingType.YOGA);
-        stored.setTrainingId(id);
-        when(trainingDao.findById(id)).thenReturn(Optional.of(stored));
-
-        assertSame(stored, service.getById(id));
+        verify(trainingDao).findTrainerTrainings("Anna.Lee", TrainerTrainingCriteria.none());
     }
 
     @Test
-    void getByIdUnknownThrows() {
-        UUID id = UUID.randomUUID();
-        when(trainingDao.findById(id)).thenReturn(Optional.empty());
+    void trainingsOfUnknownUserThrow() {
+        when(traineeDao.findByUsername("Nobody")).thenReturn(Optional.empty());
+        when(trainerDao.findByUsername("Nobody")).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> service.getById(id));
-    }
-
-    @Test
-    void getAllReturnsDaoList() {
-        List<Training> all = List.of(training(TrainingType.YOGA));
-        when(trainingDao.findAll()).thenReturn(all);
-
-        assertSame(all, service.getAll());
+        assertThrows(NotFoundException.class, () -> service.getTraineeTrainings("Nobody", null));
+        assertThrows(NotFoundException.class, () -> service.getTrainerTrainings("Nobody", null));
+        verifyNoInteractions(trainingDao);
     }
 }

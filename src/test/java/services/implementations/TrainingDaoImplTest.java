@@ -1,4 +1,4 @@
-package dao.implementations;
+package services.implementations;
 
 import io.gymcrm.dao.TrainingDao;
 import io.gymcrm.dto.TraineeTrainingCriteria;
