@@ -2,12 +2,14 @@ package io.gymcrm.services.implementations;
 
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
+import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
@@ -30,9 +32,15 @@ import static io.gymcrm.services.Validation.requireText;
 public class TraineeServiceImpl implements TraineeService {
 
     private TraineeDao traineeDao;
+    private AuthenticationService authenticationService;
     private TrainerDao trainerDao;
     private UsernameGenerator usernameGenerator;
     private PasswordGenerator passwordGenerator;
+
+    @Autowired
+    public void setAuthenticationService(AuthenticationService authenticationService) {
+        this.authenticationService = authenticationService;
+    }
 
     @Autowired
     public void setTraineeDao(TraineeDao traineeDao) {
@@ -75,20 +83,25 @@ public class TraineeServiceImpl implements TraineeService {
 
     @Override
     @Transactional(readOnly = true)
-    public Trainee getByUsername(String username) {
+    public Trainee getByUsername(Credentials auth, String username) {
+        authenticationService.authenticate(auth);
         log.debug("Selecting trainee by username {}", username);
         return find(username);
     }
 
     @Override
-    public void changePassword(String username, String newPassword) {
+    public void changePassword(Credentials auth, String newPassword) {
+        authenticationService.authenticateTrainee(auth);
+        String username = auth.username();
         String password = requireText(newPassword, "New password");
         find(username).getUser().setPassword(password);
         log.info("Trainee {} changed password", username);
     }
 
     @Override
-    public Trainee update(String username, TraineeUpdate update) {
+    public Trainee update(Credentials auth, TraineeUpdate update) {
+        authenticationService.authenticateTrainee(auth);
+        String username = auth.username();
         Objects.requireNonNull(update, "update must not be null");
         String firstName = requireText(update.firstName(), "First name");
         String lastName = requireText(update.lastName(), "Last name");
@@ -103,7 +116,9 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public boolean toggleActive(String username) {
+    public boolean toggleActive(Credentials auth) {
+        authenticationService.authenticateTrainee(auth);
+        String username = auth.username();
         User user = find(username).getUser();
         user.setActive(!user.isActive());
         log.info("Trainee {} is now {}", username, user.isActive() ? "active" : "inactive");
@@ -111,7 +126,9 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public void deleteByUsername(String username) {
+    public void delete(Credentials auth) {
+        authenticationService.authenticateTrainee(auth);
+        String username = auth.username();
         Trainee trainee = find(username);
         int trainings = trainee.getTrainings().size();
         traineeDao.delete(trainee);
@@ -119,7 +136,9 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public List<Trainer> updateTrainers(String username, List<String> trainerUsernames) {
+    public List<Trainer> updateTrainers(Credentials auth, List<String> trainerUsernames) {
+        authenticationService.authenticateTrainee(auth);
+        String username = auth.username();
         Objects.requireNonNull(trainerUsernames, "trainerUsernames must not be null");
         Set<String> requested = new LinkedHashSet<>(trainerUsernames);
         Trainee trainee = find(username);

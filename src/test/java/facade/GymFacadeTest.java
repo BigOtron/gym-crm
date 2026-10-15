@@ -12,6 +12,7 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.facade.GymFacade;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
@@ -20,20 +21,17 @@ import io.gymcrm.services.TrainingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -64,7 +62,7 @@ class GymFacadeTest {
     }
 
     @Test
-    void createProfilesDoNotAuthenticate() {
+    void createProfiles() {
         var traineeRegistration = new TraineeRegistration("John", "Smith", null, null);
         var trainerRegistration = new TrainerRegistration("Anna", "Lee", "Yoga");
         Trainee trainee = new Trainee();
@@ -78,116 +76,79 @@ class GymFacadeTest {
     }
 
     @Test
-    void credentialsMatchingDelegates() {
+    void credentialsMatching() {
         when(authenticationService.traineeCredentialsMatch(JOHN)).thenReturn(true);
-        when(authenticationService.trainerCredentialsMatch(ANNA)).thenReturn(true);
+        when(authenticationService.trainerCredentialsMatch(JOHN)).thenReturn(false);
 
         assertTrue(facade.traineeCredentialsMatch(JOHN));
-        assertTrue(facade.trainerCredentialsMatch(ANNA));
+        assertFalse(facade.trainerCredentialsMatch(JOHN));
     }
 
     @Test
-    void selectsAuthenticateAnyUser() {
-        facade.getTraineeByUsername(ANNA, "John.Smith");
-        facade.getTrainerByUsername(JOHN, "Anna.Lee");
-
-        verify(authenticationService).authenticate(ANNA);
-        verify(authenticationService).authenticate(JOHN);
-        verify(traineeService).getByUsername("John.Smith");
-        verify(trainerService).getByUsername("Anna.Lee");
-    }
-
-    @Test
-    void traineeOperationsAuthenticateTraineeFirstAndUseOwnUsername() {
+    void traineeOperationsPassTheCredentialsOn() {
         var update = new TraineeUpdate("John", "Smith", null, null);
+        Trainee trainee = new Trainee();
+        List<Trainer> trainers = List.of(new Trainer());
+        when(traineeService.getByUsername(ANNA, "John.Smith")).thenReturn(trainee);
+        when(traineeService.update(JOHN, update)).thenReturn(trainee);
+        when(traineeService.toggleActive(JOHN)).thenReturn(false);
+        when(traineeService.updateTrainers(JOHN, List.of("Anna.Lee"))).thenReturn(trainers);
 
+        assertSame(trainee, facade.getTraineeByUsername(ANNA, "John.Smith"));
         facade.changeTraineePassword(JOHN, "newPassword");
-        facade.updateTrainee(JOHN, update);
-        facade.toggleTraineeActive(JOHN);
+        assertSame(trainee, facade.updateTrainee(JOHN, update));
+        assertFalse(facade.toggleTraineeActive(JOHN));
         facade.deleteTrainee(JOHN);
-        facade.updateTraineeTrainers(JOHN, List.of("Anna.Lee"));
+        assertSame(trainers, facade.updateTraineeTrainers(JOHN, List.of("Anna.Lee")));
 
-        InOrder order = inOrder(authenticationService, traineeService);
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).changePassword("John.Smith", "newPassword");
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).update("John.Smith", update);
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).toggleActive("John.Smith");
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).deleteByUsername("John.Smith");
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).updateTrainers("John.Smith", List.of("Anna.Lee"));
+        verify(traineeService).changePassword(JOHN, "newPassword");
+        verify(traineeService).delete(JOHN);
+        verifyNoInteractions(authenticationService);
     }
 
     @Test
-    void trainerOperationsAuthenticateTrainerFirstAndUseOwnUsername() {
+    void trainerOperationsPassTheCredentialsOn() {
         var update = new TrainerUpdate("Anna", "Lee", "Yoga");
+        Trainer trainer = new Trainer();
+        List<Trainer> free = List.of(trainer);
+        when(trainerService.getByUsername(JOHN, "Anna.Lee")).thenReturn(trainer);
+        when(trainerService.update(ANNA, update)).thenReturn(trainer);
+        when(trainerService.toggleActive(ANNA)).thenReturn(true);
+        when(trainerService.getNotAssignedToTrainee(JOHN, "John.Smith")).thenReturn(free);
 
+        assertSame(trainer, facade.getTrainerByUsername(JOHN, "Anna.Lee"));
         facade.changeTrainerPassword(ANNA, "newPassword");
-        facade.updateTrainer(ANNA, update);
-        facade.toggleTrainerActive(ANNA);
+        assertSame(trainer, facade.updateTrainer(ANNA, update));
+        assertTrue(facade.toggleTrainerActive(ANNA));
+        assertSame(free, facade.getTrainersNotAssignedToTrainee(JOHN, "John.Smith"));
 
-        InOrder order = inOrder(authenticationService, trainerService);
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).changePassword("Anna.Lee", "newPassword");
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).update("Anna.Lee", update);
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).toggleActive("Anna.Lee");
+        verify(trainerService).changePassword(ANNA, "newPassword");
+        verifyNoInteractions(authenticationService);
     }
 
     @Test
-    void failedAuthenticationStopsTheOperation() {
-        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticateTrainee(JOHN);
-        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
+    void trainingOperationsPassTheCredentialsOn() {
+        var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
+        var traineeCriteria = new TraineeTrainingCriteria(null, null, "Anna", null);
+        var trainerCriteria = new TrainerTrainingCriteria(null, null, "John");
+        Training training = new Training();
+        List<Training> trainings = List.of(training);
+        when(trainingService.create(JOHN, newTraining)).thenReturn(training);
+        when(trainingService.getTraineeTrainings(JOHN, "John.Smith", traineeCriteria)).thenReturn(trainings);
+        when(trainingService.getTrainerTrainings(ANNA, "Anna.Lee", trainerCriteria)).thenReturn(trainings);
 
-        assertThrows(AuthenticationException.class, () -> facade.deleteTrainee(JOHN));
-        assertThrows(AuthenticationException.class, () -> facade.getTraineeByUsername(JOHN, "John.Smith"));
-        assertThrows(AuthenticationException.class,
-                () -> facade.getTraineeTrainings(JOHN, "John.Smith", TraineeTrainingCriteria.none()));
-        verifyNoInteractions(traineeService, trainingService);
-    }
-
-    @Test
-    void trainingListsDelegate() {
-        var traineeCriteria = new TraineeTrainingCriteria(LocalDate.MIN, null, "Anna", "Yoga");
-        var trainerCriteria = new TrainerTrainingCriteria(null, LocalDate.MAX, "John");
-        List<Training> trainings = List.of(new Training());
-        when(trainingService.getTraineeTrainings("John.Smith", traineeCriteria)).thenReturn(trainings);
-        when(trainingService.getTrainerTrainings("Anna.Lee", trainerCriteria)).thenReturn(trainings);
-
+        assertSame(training, facade.addTraining(JOHN, newTraining));
         assertSame(trainings, facade.getTraineeTrainings(JOHN, "John.Smith", traineeCriteria));
         assertSame(trainings, facade.getTrainerTrainings(ANNA, "Anna.Lee", trainerCriteria));
+        verifyNoInteractions(authenticationService);
     }
 
     @Test
-    void addTrainingByParticipant() {
-        var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
-        Training training = new Training();
-        when(trainingService.create(newTraining)).thenReturn(training);
+    void serviceErrorsReachTheCaller() {
+        doThrow(new AuthenticationException("bad")).when(traineeService).delete(JOHN);
+        when(trainerService.getByUsername(JOHN, "Nobody")).thenThrow(new NotFoundException("Trainer not found"));
 
-        assertSame(training, facade.addTraining(ANNA, newTraining));
-        assertSame(training, facade.addTraining(JOHN, newTraining));
-    }
-
-    @Test
-    void addTrainingByOutsiderIsRejected() {
-        var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
-        var outsider = new Credentials("David.Brown", "secret");
-
-        assertThrows(AuthenticationException.class, () -> facade.addTraining(outsider, newTraining));
-        verify(authenticationService).authenticate(outsider);
-        verifyNoInteractions(trainingService);
-    }
-
-    @Test
-    void notAssignedTrainersDelegates() {
-        List<Trainer> trainers = List.of(new Trainer());
-        when(trainerService.getNotAssignedToTrainee("John.Smith")).thenReturn(trainers);
-
-        assertEquals(trainers, facade.getTrainersNotAssignedToTrainee(JOHN, "John.Smith"));
-        verify(authenticationService).authenticate(JOHN);
-        verify(trainerService).getNotAssignedToTrainee(any());
+        assertThrows(AuthenticationException.class, () -> facade.deleteTrainee(JOHN));
+        assertThrows(NotFoundException.class, () -> facade.getTrainerByUsername(JOHN, "Nobody"));
     }
 }

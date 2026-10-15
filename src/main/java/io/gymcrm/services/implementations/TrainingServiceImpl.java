@@ -3,13 +3,16 @@ package io.gymcrm.services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingDao;
+import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeTrainingCriteria;
 import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
+import io.gymcrm.exceptions.AuthenticationException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TrainingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,8 +32,14 @@ import static io.gymcrm.services.Validation.requireValue;
 public class TrainingServiceImpl implements TrainingService {
 
     private TrainingDao trainingDao;
+    private AuthenticationService authenticationService;
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
+
+    @Autowired
+    public void setAuthenticationService(AuthenticationService authenticationService) {
+        this.authenticationService = authenticationService;
+    }
 
     @Autowired
     public void setTrainingDao(TrainingDao trainingDao) {
@@ -48,7 +57,8 @@ public class TrainingServiceImpl implements TrainingService {
     }
 
     @Override
-    public Training create(NewTraining newTraining) {
+    public Training create(Credentials auth, NewTraining newTraining) {
+        authenticationService.authenticate(auth);
         Objects.requireNonNull(newTraining, "newTraining must not be null");
         String traineeUsername = requireText(newTraining.traineeUsername(), "Trainee username");
         String trainerUsername = requireText(newTraining.trainerUsername(), "Trainer username");
@@ -58,6 +68,10 @@ public class TrainingServiceImpl implements TrainingService {
         if (duration <= 0) {
             log.warn("Rejected training '{}' with non-positive duration {}", name, duration);
             throw new IllegalArgumentException("Training duration must be positive");
+        }
+        if (!auth.username().equals(traineeUsername) && !auth.username().equals(trainerUsername)) {
+            log.warn("User {} tried to add a training they don't take part in", auth.username());
+            throw new AuthenticationException("Only the trainee or the trainer can add a training");
         }
         log.debug("Creating training '{}' for trainee {} with trainer {}", name, traineeUsername, trainerUsername);
 
@@ -90,7 +104,9 @@ public class TrainingServiceImpl implements TrainingService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Training> getTraineeTrainings(String traineeUsername, TraineeTrainingCriteria criteria) {
+    public List<Training> getTraineeTrainings(Credentials auth, String traineeUsername,
+                                              TraineeTrainingCriteria criteria) {
+        authenticationService.authenticate(auth);
         if (traineeDao.findByUsername(traineeUsername).isEmpty()) {
             log.warn("Trainee not found by username {}", traineeUsername);
             throw new NotFoundException("Trainee not found: " + traineeUsername);
@@ -101,7 +117,9 @@ public class TrainingServiceImpl implements TrainingService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Training> getTrainerTrainings(String trainerUsername, TrainerTrainingCriteria criteria) {
+    public List<Training> getTrainerTrainings(Credentials auth, String trainerUsername,
+                                              TrainerTrainingCriteria criteria) {
+        authenticationService.authenticate(auth);
         if (trainerDao.findByUsername(trainerUsername).isEmpty()) {
             log.warn("Trainer not found by username {}", trainerUsername);
             throw new NotFoundException("Trainer not found: " + trainerUsername);
