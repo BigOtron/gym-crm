@@ -11,7 +11,8 @@ import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
-import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.entities.TrainingType;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.services.TrainerService;
@@ -40,15 +41,13 @@ public class GymFacade {
         this.trainingService = trainingService;
     }
 
-
-    public Trainer createTrainer(TrainerRegistration registration) {
-        return trainerService.create(registration);
-    }
-
     public Trainee createTrainee(TraineeRegistration registration) {
         return traineeService.create(registration);
     }
 
+    public Trainer createTrainer(TrainerRegistration registration) {
+        return trainerService.create(registration);
+    }
 
     public boolean traineeCredentialsMatch(Credentials credentials) {
         return authenticationService.traineeCredentialsMatch(credentials);
@@ -58,10 +57,17 @@ public class GymFacade {
         return authenticationService.trainerCredentialsMatch(credentials);
     }
 
-
-    public Trainer getTrainerByUsername(Credentials auth, String username) {
+    public void login(Credentials auth) {
         authenticationService.authenticate(auth);
-        return trainerService.getByUsername(username);
+    }
+
+    public void changePassword(Credentials auth, String newPassword) {
+        if (authenticationService.traineeCredentialsMatch(auth)) {
+            traineeService.changePassword(auth.username(), newPassword);
+        } else {
+            authenticationService.authenticateTrainer(auth);
+            trainerService.changePassword(auth.username(), newPassword);
+        }
     }
 
     public Trainee getTraineeByUsername(Credentials auth, String username) {
@@ -69,42 +75,50 @@ public class GymFacade {
         return traineeService.getByUsername(username);
     }
 
-
-    public void changeTraineePassword(Credentials auth, String newPassword) {
+    public Trainee updateTrainee(Credentials auth, String username, TraineeUpdate update) {
         authenticationService.authenticateTrainee(auth);
-        traineeService.changePassword(auth.username(), newPassword);
+        requireSelf(auth, username);
+        return traineeService.update(username, update);
     }
 
-    public void changeTrainerPassword(Credentials auth, String newPassword) {
+    public void setTraineeActive(Credentials auth, String username, boolean active) {
+        authenticationService.authenticateTrainee(auth);
+        requireSelf(auth, username);
+        traineeService.setActive(username, active);
+    }
+
+    public void deleteTrainee(Credentials auth, String username) {
+        authenticationService.authenticateTrainee(auth);
+        requireSelf(auth, username);
+        traineeService.deleteByUsername(username);
+    }
+
+    public List<Trainer> getTrainersNotAssignedToTrainee(Credentials auth, String traineeUsername) {
+        authenticationService.authenticate(auth);
+        return trainerService.getNotAssignedToTrainee(traineeUsername);
+    }
+
+    public List<Trainer> updateTraineeTrainers(Credentials auth, String username, List<String> trainerUsernames) {
+        authenticationService.authenticateTrainee(auth);
+        requireSelf(auth, username);
+        return traineeService.updateTrainers(username, trainerUsernames);
+    }
+
+    public Trainer getTrainerByUsername(Credentials auth, String username) {
+        authenticationService.authenticate(auth);
+        return trainerService.getByUsername(username);
+    }
+
+    public Trainer updateTrainer(Credentials auth, String username, TrainerUpdate update) {
         authenticationService.authenticateTrainer(auth);
-        trainerService.changePassword(auth.username(), newPassword);
+        requireSelf(auth, username);
+        return trainerService.update(username, update);
     }
 
-    public Trainer updateTrainer(Credentials auth, TrainerUpdate update) {
+    public void setTrainerActive(Credentials auth, String username, boolean active) {
         authenticationService.authenticateTrainer(auth);
-        return trainerService.update(auth.username(), update);
-    }
-
-    public Trainee updateTrainee(Credentials auth, TraineeUpdate update) {
-        authenticationService.authenticateTrainee(auth);
-        return traineeService.update(auth.username(), update);
-    }
-
-
-    public boolean toggleTraineeActive(Credentials auth) {
-        authenticationService.authenticateTrainee(auth);
-        return traineeService.toggleActive(auth.username());
-    }
-
-    public boolean toggleTrainerActive(Credentials auth) {
-        authenticationService.authenticateTrainer(auth);
-        return trainerService.toggleActive(auth.username());
-    }
-
-
-    public void deleteTrainee(Credentials auth) {
-        authenticationService.authenticateTrainee(auth);
-        traineeService.deleteByUsername(auth.username());
+        requireSelf(auth, username);
+        trainerService.setActive(username, active);
     }
 
     public List<Training> getTraineeTrainings(Credentials auth, String traineeUsername,
@@ -124,18 +138,20 @@ public class GymFacade {
         if (newTraining != null && !auth.username().equals(newTraining.traineeUsername())
                 && !auth.username().equals(newTraining.trainerUsername())) {
             log.warn("User {} tried to add a training they don't take part in", auth.username());
-            throw new AuthenticationException("Only the trainee or the trainer can add a training");
+            throw new ForbiddenException("Only the trainee or the trainer can add a training");
         }
         return trainingService.create(newTraining);
     }
 
-    public List<Trainer> getTrainersNotAssignedToTrainee(Credentials auth, String traineeUsername) {
+    public List<TrainingType> getTrainingTypes(Credentials auth) {
         authenticationService.authenticate(auth);
-        return trainerService.getNotAssignedToTrainee(traineeUsername);
+        return trainingService.getTrainingTypes();
     }
 
-    public List<Trainer> updateTraineeTrainers(Credentials auth, List<String> trainerUsernames) {
-        authenticationService.authenticateTrainee(auth);
-        return traineeService.updateTrainers(auth.username(), trainerUsernames);
+    private static void requireSelf(Credentials auth, String username) {
+        if (!auth.username().equals(username)) {
+            log.warn("User {} tried to change the profile of {}", auth.username(), username);
+            throw new ForbiddenException("You can only change your own profile");
+        }
     }
 }

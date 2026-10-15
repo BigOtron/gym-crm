@@ -3,12 +3,14 @@ package io.gymcrm.services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingDao;
+import io.gymcrm.dao.TrainingTypeDao;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeTrainingCriteria;
 import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
+import io.gymcrm.entities.TrainingType;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.TrainingService;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +33,7 @@ public class TrainingServiceImpl implements TrainingService {
     private TrainingDao trainingDao;
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
+    private TrainingTypeDao trainingTypeDao;
 
     @Autowired
     public void setTrainingDao(TrainingDao trainingDao) {
@@ -45,6 +48,11 @@ public class TrainingServiceImpl implements TrainingService {
     @Autowired
     public void setTrainerDao(TrainerDao trainerDao) {
         this.trainerDao = trainerDao;
+    }
+
+    @Autowired
+    public void setTrainingTypeDao(TrainingTypeDao trainingTypeDao) {
+        this.trainingTypeDao = trainingTypeDao;
     }
 
     @Override
@@ -108,5 +116,11 @@ public class TrainingServiceImpl implements TrainingService {
         }
         return trainingDao.findTrainerTrainings(trainerUsername,
                 criteria == null ? TrainerTrainingCriteria.none() : criteria);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TrainingType> getTrainingTypes() {
+        return trainingTypeDao.findAll();
     }
 }

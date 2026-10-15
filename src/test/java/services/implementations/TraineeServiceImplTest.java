@@ -6,6 +6,7 @@ import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
+import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.implementations.TraineeServiceImpl;
 import io.gymcrm.util.PasswordGenerator;
@@ -128,29 +129,42 @@ class TraineeServiceImplTest {
     void updateChangesFieldsButKeepsUsername() {
         Trainee trainee = givenTrainee();
 
-        service.update("John.Smith", new TraineeUpdate("Johnny", "Smithson", LocalDate.of(2000, 1, 1), "Bukhara"));
+        service.update("John.Smith", new TraineeUpdate("Johnny", "Smithson", LocalDate.of(2000, 1, 1), "Bukhara", false));
 
         assertEquals("Johnny", trainee.getUser().getFirstName());
         assertEquals("Smithson", trainee.getUser().getLastName());
         assertEquals("John.Smith", trainee.getUser().getUsername());
         assertEquals(LocalDate.of(2000, 1, 1), trainee.getDateOfBirth());
         assertEquals("Bukhara", trainee.getAddress());
+        assertFalse(trainee.getUser().isActive());
     }
 
     @Test
     void updateRejectsMissingNames() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.update("John.Smith", new TraineeUpdate("John", null, null, null)));
+                () -> service.update("John.Smith", new TraineeUpdate("John", null, null, null, true)));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.update("John.Smith", new TraineeUpdate("John", "Smith", null, null, null)));
         verifyNoInteractions(traineeDao);
     }
 
     @Test
-    void toggleActiveFlipsTheFlag() {
+    void setActiveChangesTheFlag() {
         Trainee trainee = givenTrainee();
 
-        assertFalse(service.toggleActive("John.Smith"));
+        service.setActive("John.Smith", false);
         assertFalse(trainee.getUser().isActive());
-        assertTrue(service.toggleActive("John.Smith"));
+
+        service.setActive("John.Smith", true);
+        assertTrue(trainee.getUser().isActive());
+    }
+
+    @Test
+    void setActiveToCurrentStateConflicts() {
+        Trainee trainee = givenTrainee();
+
+        assertThrows(ConflictException.class, () -> service.setActive("John.Smith", true));
+        assertTrue(trainee.getUser().isActive());
     }
 
     @Test

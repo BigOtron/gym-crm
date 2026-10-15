@@ -12,8 +12,7 @@ public interface TraineeService {
     Trainee getByUsername(String username);
     void changePassword(String username, String newPassword);
     Trainee update(String username, TraineeUpdate update);
-
-    boolean toggleActive(String username);
+    void setActive(String username, boolean active);
 
     void deleteByUsername(String username);
 

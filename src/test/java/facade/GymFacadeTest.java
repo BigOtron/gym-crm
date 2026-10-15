@@ -12,6 +12,7 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.facade.GymFacade;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -66,7 +68,7 @@ class GymFacadeTest {
     @Test
     void createProfilesDoNotAuthenticate() {
         var traineeRegistration = new TraineeRegistration("John", "Smith", null, null);
-        var trainerRegistration = new TrainerRegistration("Anna", "Lee", "Yoga");
+        var trainerRegistration = new TrainerRegistration("Anna", "Lee", 6L);
         Trainee trainee = new Trainee();
         Trainer trainer = new Trainer();
         when(traineeService.create(traineeRegistration)).thenReturn(trainee);
@@ -98,22 +100,19 @@ class GymFacadeTest {
     }
 
     @Test
-    void traineeOperationsAuthenticateTraineeFirstAndUseOwnUsername() {
-        var update = new TraineeUpdate("John", "Smith", null, null);
+    void traineeOperationsAuthenticateTraineeFirst() {
+        var update = new TraineeUpdate("John", "Smith", null, null, true);
 
-        facade.changeTraineePassword(JOHN, "newPassword");
-        facade.updateTrainee(JOHN, update);
-        facade.toggleTraineeActive(JOHN);
-        facade.deleteTrainee(JOHN);
-        facade.updateTraineeTrainers(JOHN, List.of("Anna.Lee"));
+        facade.updateTrainee(JOHN, "John.Smith", update);
+        facade.setTraineeActive(JOHN, "John.Smith", false);
+        facade.deleteTrainee(JOHN, "John.Smith");
+        facade.updateTraineeTrainers(JOHN, "John.Smith", List.of("Anna.Lee"));
 
         InOrder order = inOrder(authenticationService, traineeService);
         order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).changePassword("John.Smith", "newPassword");
-        order.verify(authenticationService).authenticateTrainee(JOHN);
         order.verify(traineeService).update("John.Smith", update);
         order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).toggleActive("John.Smith");
+        order.verify(traineeService).setActive("John.Smith", false);
         order.verify(authenticationService).authenticateTrainee(JOHN);
         order.verify(traineeService).deleteByUsername("John.Smith");
         order.verify(authenticationService).authenticateTrainee(JOHN);
@@ -121,20 +120,71 @@ class GymFacadeTest {
     }
 
     @Test
-    void trainerOperationsAuthenticateTrainerFirstAndUseOwnUsername() {
-        var update = new TrainerUpdate("Anna", "Lee", "Yoga");
+    void trainerOperationsAuthenticateTrainerFirst() {
+        var update = new TrainerUpdate("Anna", "Lee", true);
 
-        facade.changeTrainerPassword(ANNA, "newPassword");
-        facade.updateTrainer(ANNA, update);
-        facade.toggleTrainerActive(ANNA);
+        facade.updateTrainer(ANNA, "Anna.Lee", update);
+        facade.setTrainerActive(ANNA, "Anna.Lee", false);
+
+        InOrder order = inOrder(authenticationService, trainerService);
+        order.verify(authenticationService).authenticateTrainer(ANNA);
+        order.verify(trainerService).update("Anna.Lee", update);
+        order.verify(authenticationService).authenticateTrainer(ANNA);
+        order.verify(trainerService).setActive("Anna.Lee", false);
+    }
+
+    @Test
+    void changingSomeoneElsesProfileIsForbidden() {
+        var outsider = new Credentials("David.Brown", "secret");
+
+        assertThrows(ForbiddenException.class,
+                () -> facade.updateTrainee(outsider, "John.Smith", new TraineeUpdate("J", "S", null, null, true)));
+        assertThrows(ForbiddenException.class, () -> facade.setTraineeActive(outsider, "John.Smith", false));
+        assertThrows(ForbiddenException.class, () -> facade.deleteTrainee(outsider, "John.Smith"));
+        assertThrows(ForbiddenException.class, () -> facade.updateTraineeTrainers(outsider, "John.Smith", List.of()));
+        assertThrows(ForbiddenException.class,
+                () -> facade.updateTrainer(outsider, "Anna.Lee", new TrainerUpdate("A", "L", true)));
+        assertThrows(ForbiddenException.class, () -> facade.setTrainerActive(outsider, "Anna.Lee", false));
+        verifyNoInteractions(traineeService, trainerService);
+    }
+
+    @Test
+    void changePasswordOfTrainee() {
+        when(authenticationService.traineeCredentialsMatch(JOHN)).thenReturn(true);
+
+        facade.changePassword(JOHN, "newPassword");
+
+        verify(traineeService).changePassword("John.Smith", "newPassword");
+        verifyNoInteractions(trainerService);
+    }
+
+    @Test
+    void changePasswordOfTrainer() {
+        when(authenticationService.traineeCredentialsMatch(ANNA)).thenReturn(false);
+
+        facade.changePassword(ANNA, "newPassword");
 
         InOrder order = inOrder(authenticationService, trainerService);
         order.verify(authenticationService).authenticateTrainer(ANNA);
         order.verify(trainerService).changePassword("Anna.Lee", "newPassword");
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).update("Anna.Lee", update);
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).toggleActive("Anna.Lee");
+        verifyNoInteractions(traineeService);
+    }
+
+    @Test
+    void changePasswordWithWrongOldPasswordFails() {
+        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticateTrainer(JOHN);
+
+        assertThrows(AuthenticationException.class, () -> facade.changePassword(JOHN, "newPassword"));
+        verifyNoInteractions(traineeService, trainerService);
+    }
+
+    @Test
+    void loginAndTrainingTypesAuthenticate() {
+        facade.login(JOHN);
+        facade.getTrainingTypes(JOHN);
+
+        verify(authenticationService, times(2)).authenticate(JOHN);
+        verify(trainingService).getTrainingTypes();
     }
 
     @Test
@@ -142,7 +192,7 @@ class GymFacadeTest {
         doThrow(new AuthenticationException("bad")).when(authenticationService).authenticateTrainee(JOHN);
         doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
 
-        assertThrows(AuthenticationException.class, () -> facade.deleteTrainee(JOHN));
+        assertThrows(AuthenticationException.class, () -> facade.deleteTrainee(JOHN, "John.Smith"));
         assertThrows(AuthenticationException.class, () -> facade.getTraineeByUsername(JOHN, "John.Smith"));
         assertThrows(AuthenticationException.class,
                 () -> facade.getTraineeTrainings(JOHN, "John.Smith", TraineeTrainingCriteria.none()));
@@ -176,7 +226,7 @@ class GymFacadeTest {
         var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
         var outsider = new Credentials("David.Brown", "secret");
 
-        assertThrows(AuthenticationException.class, () -> facade.addTraining(outsider, newTraining));
+        assertThrows(ForbiddenException.class, () -> facade.addTraining(outsider, newTraining));
         verify(authenticationService).authenticate(outsider);
         verifyNoInteractions(trainingService);
     }

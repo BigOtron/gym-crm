@@ -12,7 +12,7 @@ public interface TrainerService {
     void changePassword(String username, String newPassword);
     Trainer update(String username, TrainerUpdate update);
 
-    boolean toggleActive(String username);
+    void setActive(String username, boolean active);
 
     List<Trainer> getNotAssignedToTrainee(String traineeUsername);
 }
