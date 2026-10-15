@@ -7,9 +7,9 @@
         </encoder>
     </appender>
 
-    <!-- Tests deliberately trigger rejections, so keep the output short -->
     <logger name="io.gymcrm" level="INFO"/>
     <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
 
     <root level="WARN">
         <appender-ref ref="CONSOLE"/>

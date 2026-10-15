@@ -1,169 +1,108 @@
 package dao.implementations;
 
-import io.gymcrm.dao.implementations.TraineeDaoImpl;
+import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.entities.Trainee;
-import org.junit.jupiter.api.BeforeEach;
+import io.gymcrm.entities.Trainer;
+import io.gymcrm.entities.User;
+import jakarta.persistence.PersistenceException;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import support.DaoTestBase;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Optional;
-import java.util.UUID;
+import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class TraineeDaoImplTest {
+class TraineeDaoImplTest extends DaoTestBase {
 
-    private Map<UUID, Trainee> storage;
-    private TraineeDaoImpl dao;
+    @Autowired
+    private TraineeDao traineeDao;
 
-    @BeforeEach
-    void setUp() {
-        storage = new HashMap<>();
-        dao = new TraineeDaoImpl();
-        dao.setStorage(storage);
-    }
-
-    private static Trainee trainee(String username) {
+    @Test
+    void saveCascadesToUser() {
         Trainee trainee = new Trainee();
-        trainee.setFirstName("John");
-        trainee.setLastName("Smith");
-        trainee.setUsername(username);
-        return trainee;
+        trainee.setUser(new User("John", "Smith", "John.Smith", "password", true));
+
+        traineeDao.save(trainee);
+        flushAndClear();
+
+        assertNotNull(trainee.getId());
+        assertNotNull(trainee.getUser().getId());
+        assertEquals(1, count("users"));
+        assertEquals(1, count("trainee"));
     }
 
     @Test
-    void createAssignsIdAndStoresTrainee() {
-        Trainee trainee = trainee("John.Smith");
-
-        Trainee result = dao.create(trainee);
-
-        assertSame(trainee, result);
-        assertNotNull(result.getUserId());
-        assertSame(trainee, storage.get(result.getUserId()));
+    void saveWithoutUserFails() {
+        assertThrows(PersistenceException.class, () -> {
+            traineeDao.save(new Trainee());
+            entityManager.flush();
+        });
     }
 
     @Test
-    void createKeepsExistingId() {
-        UUID id = UUID.randomUUID();
-        Trainee trainee = trainee("John.Smith");
-        trainee.setUserId(id);
+    void duplicateUsernameIsRejectedByDatabase() {
+        persistTrainee("John", "Smith", "John.Smith");
 
-        dao.create(trainee);
-
-        assertEquals(id, trainee.getUserId());
-        assertSame(trainee, storage.get(id));
+        assertThrows(PersistenceException.class, () -> {
+            persistTrainee("John", "Smith", "John.Smith");
+            entityManager.flush();
+        });
     }
 
     @Test
-    void updateReplacesStoredTraineeAndReturnsNewVersion() {
-        Trainee original = dao.create(trainee("John.Smith"));
-        Trainee changed = trainee("John.Smith");
-        changed.setUserId(original.getUserId());
-        changed.setAddress("New address");
+    void findByUsernameLoadsProfileAndTrainers() {
+        Trainee trainee = persistTrainee("John", "Smith", "John.Smith");
+        Trainer anna = persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        trainee.getTrainers().add(anna);
+        flushAndClear();
 
-        Trainee result = dao.update(changed);
+        Trainee found = traineeDao.findByUsername("John.Smith").orElseThrow();
 
-        assertSame(changed, result);
-        assertEquals("New address", storage.get(original.getUserId()).getAddress());
-        assertEquals(1, storage.size());
+        assertEquals(LocalDate.of(1995, 4, 12), found.getDateOfBirth());
+        assertEquals("Tashkent", found.getAddress());
+        // The test transaction would hide lazy loading, so check the query loaded the trainers itself.
+        assertTrue(Hibernate.isInitialized(found.getTrainers()));
+        assertEquals(1, found.getTrainers().size());
+        assertEquals("Anna.Lee", found.getTrainers().iterator().next().getUser().getUsername());
     }
 
     @Test
-    void updateUnknownIdThrowsAndDoesNotInsert() {
-        Trainee trainee = trainee("John.Smith");
-        trainee.setUserId(UUID.randomUUID());
+    void findByUsernameReturnsTraineeWithoutTrainers() {
+        persistTrainee("John", "Smith", "John.Smith");
+        flushAndClear();
 
-        assertThrows(NoSuchElementException.class, () -> dao.update(trainee));
-        assertTrue(storage.isEmpty());
+        assertTrue(traineeDao.findByUsername("John.Smith").orElseThrow().getTrainers().isEmpty());
     }
 
     @Test
-    void updateWithoutIdThrows() {
-        Trainee trainee = trainee("John.Smith");
+    void findByUsernameIgnoresTrainers() {
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
 
-        assertThrows(NoSuchElementException.class, () -> dao.update(trainee));
+        assertTrue(traineeDao.findByUsername("Anna.Lee").isEmpty());
+        assertTrue(traineeDao.findByUsername("Nobody").isEmpty());
     }
 
     @Test
-    void deleteRemovesTrainee() {
-        Trainee trainee = dao.create(trainee("John.Smith"));
+    void deleteCascadesToUserTrainingsAndTrainerLinks() {
+        Trainee trainee = persistTrainee("John", "Smith", "John.Smith");
+        Trainer anna = persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        trainee.getTrainers().add(anna);
+        persistTraining(trainee, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
+        persistTraining(trainee, anna, "Yoga 2", LocalDate.of(2026, 9, 2));
+        flushAndClear();
 
-        dao.delete(trainee.getUserId());
+        traineeDao.delete(traineeDao.findByUsername("John.Smith").orElseThrow());
+        flushAndClear();
 
-        assertTrue(storage.isEmpty());
-    }
-
-    @Test
-    void deleteUnknownIdThrows() {
-        UUID unknownId = UUID.randomUUID();
-
-        assertThrows(NoSuchElementException.class, () -> dao.delete(unknownId));
-    }
-
-    @Test
-    void findByIdReturnsStoredTrainee() {
-        Trainee trainee = dao.create(trainee("John.Smith"));
-
-        Optional<Trainee> result = dao.findById(trainee.getUserId());
-
-        assertTrue(result.isPresent());
-        assertSame(trainee, result.get());
-    }
-
-    @Test
-    void findByIdUnknownReturnsEmpty() {
-        assertTrue(dao.findById(UUID.randomUUID()).isEmpty());
-    }
-
-    @Test
-    void findByUsernameReturnsMatchingTrainee() {
-        dao.create(trainee("John.Smith"));
-        Trainee second = dao.create(trainee("John.Smith1"));
-
-        Optional<Trainee> result = dao.findByUsername("John.Smith1");
-
-        assertTrue(result.isPresent());
-        assertSame(second, result.get());
-    }
-
-    @Test
-    void findByUsernameUnknownReturnsEmpty() {
-        dao.create(trainee("John.Smith"));
-
-        assertTrue(dao.findByUsername("Nobody.Here").isEmpty());
-    }
-
-    @Test
-    void findByUsernameSkipsTraineesWithoutUsername() {
-        dao.create(trainee(null));
-
-        assertTrue(dao.findByUsername("John.Smith").isEmpty());
-    }
-
-    @Test
-    void findAllReturnsAllTrainees() {
-        dao.create(trainee("John.Smith"));
-        dao.create(trainee("John.Smith1"));
-
-        assertEquals(2, dao.findAll().size());
-    }
-
-    @Test
-    void findAllReturnsUnmodifiableSnapshot() {
-        dao.create(trainee("John.Smith"));
-
-        List<Trainee> all = dao.findAll();
-        dao.create(trainee("John.Smith1"));
-
-        assertEquals(1, all.size());
-        Trainee extra = trainee("X.Y");
-        assertThrows(UnsupportedOperationException.class, () -> all.add(extra));
+        assertEquals(0, count("trainee"));
+        assertEquals(0, count("training"));
+        assertEquals(0, count("trainee_trainer"));
+        assertEquals(1, count("trainer"));
+        assertEquals(1, count("users")); // only the trainer's user is left
     }
 }

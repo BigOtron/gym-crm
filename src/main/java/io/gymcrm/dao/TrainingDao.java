@@ -1,13 +1,13 @@
 package io.gymcrm.dao;
 
+import io.gymcrm.dto.TraineeTrainingCriteria;
+import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.entities.Training;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 public interface TrainingDao {
-    Training create(Training training);
-    Optional<Training> findById(UUID trainingId);
-    List<Training> findAll();
+    Training save(Training training);
+    List<Training> findTraineeTrainings(String traineeUsername, TraineeTrainingCriteria criteria);
+    List<Training> findTrainerTrainings(String trainerUsername, TrainerTrainingCriteria criteria);
 }
