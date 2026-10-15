@@ -2,10 +2,14 @@ package io.gymcrm;
 
 import io.gymcrm.config.AppConfig;
 import io.gymcrm.web.config.WebConfig;
+import io.gymcrm.web.logging.WebFilters;
+import jakarta.servlet.Filter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.startup.Tomcat;
+import org.apache.tomcat.util.descriptor.web.FilterDef;
+import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.servlet.DispatcherServlet;
 
@@ -32,6 +36,11 @@ public class Application {
         Tomcat.addServlet(context, "dispatcher", new DispatcherServlet(spring)).setLoadOnStartup(1);
         context.addServletMapping("/", "dispatcher");
 
+        // Filters run before the DispatcherServlet, in the order they are added.
+        for (Filter filter : WebFilters.all()) {
+            addFilter(context, filter);
+        }
+
         try {
             tomcat.start();
         } catch (LifecycleException e) {
@@ -53,5 +62,18 @@ public class Application {
 
         log.info("Gym CRM started on http://localhost:{}", port);
         tomcat.getServer().await();
+    }
+
+    private static void addFilter(StandardContext context, Filter filter) {
+        String name = filter.getClass().getSimpleName();
+        FilterDef definition = new FilterDef();
+        definition.setFilterName(name);
+        definition.setFilter(filter);
+        context.addFilterDef(definition);
+
+        FilterMap mapping = new FilterMap();
+        mapping.setFilterName(name);
+        mapping.addURLPattern("/*");
+        context.addFilterMap(mapping);
     }
 }

@@ -35,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -154,7 +155,9 @@ class GymFacadeTest {
 
         facade.changePassword(JOHN, "newPassword");
 
-        verify(traineeService).changePassword("John.Smith", "newPassword");
+        InOrder order = inOrder(authenticationService, traineeService);
+        order.verify(authenticationService).authenticate(JOHN);
+        order.verify(traineeService).changePassword("John.Smith", "newPassword");
         verifyNoInteractions(trainerService);
     }
 
@@ -165,16 +168,19 @@ class GymFacadeTest {
         facade.changePassword(ANNA, "newPassword");
 
         InOrder order = inOrder(authenticationService, trainerService);
-        order.verify(authenticationService).authenticateTrainer(ANNA);
+        order.verify(authenticationService).authenticate(ANNA);
         order.verify(trainerService).changePassword("Anna.Lee", "newPassword");
+        verify(authenticationService, never()).authenticateTrainer(any());
         verifyNoInteractions(traineeService);
     }
 
     @Test
     void changePasswordWithWrongOldPasswordFails() {
-        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticateTrainer(JOHN);
+        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
 
         assertThrows(AuthenticationException.class, () -> facade.changePassword(JOHN, "newPassword"));
+        verify(authenticationService, never()).traineeCredentialsMatch(any());
+        verify(authenticationService, never()).authenticateTrainer(any());
         verifyNoInteractions(traineeService, trainerService);
     }
 

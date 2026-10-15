@@ -62,10 +62,12 @@ public class GymFacade {
     }
 
     public void changePassword(Credentials auth, String newPassword) {
+        // Authenticate without assuming a role first, so a wrong password is logged as a failed
+        // login of the user, not as a failed login of a trainer.
+        authenticationService.authenticate(auth);
         if (authenticationService.traineeCredentialsMatch(auth)) {
             traineeService.changePassword(auth.username(), newPassword);
         } else {
-            authenticationService.authenticateTrainer(auth);
             trainerService.changePassword(auth.username(), newPassword);
         }
     }

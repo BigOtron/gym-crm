@@ -3,6 +3,7 @@ tomcat = "11.0.27"
 jackson = "3.2.3"
 hibernate-validator = "9.1.5.Final"
 expressly = "6.0.0"
+swagger-annotations = "2.2.55"
 json-path = "2.10.0"
 hamcrest = "3.0"
 jsonassert = "1.5.3"
@@ -30,6 +31,7 @@ expressly = { group = "org.glassfish.expressly", name = "expressly", version.ref
 json-path = { group = "com.jayway.jsonpath", name = "json-path", version.ref = "json-path" }
 hamcrest = { group = "org.hamcrest", name = "hamcrest", version.ref = "hamcrest" }
 jsonassert = { group = "org.skyscreamer", name = "jsonassert", version.ref = "jsonassert" }
+swagger-annotations = { group = "io.swagger.core.v3", name = "swagger-annotations-jakarta", version.ref = "swagger-annotations" }
 spring-test = { group = "org.springframework", name = "spring-test", version.ref = "spring" }
 hibernate-core = { group = "org.hibernate.orm", name = "hibernate-core", version.ref = "hibernate" }
 hikari = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikari" }

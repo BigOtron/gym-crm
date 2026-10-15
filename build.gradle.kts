@@ -5,6 +5,12 @@ plugins {
 group = "io.gymcrm"
 version = "1.0-SNAPSHOT"
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
 repositories {
     mavenCentral()
 }
@@ -15,6 +21,7 @@ dependencies {
     implementation(libs.jackson.databind)
     implementation(libs.hibernate.validator)
     runtimeOnly(libs.expressly)
+    implementation(libs.swagger.annotations)
     implementation(libs.spring.context)
     implementation(libs.spring.orm)
     implementation(libs.hibernate.core)
@@ -37,8 +44,6 @@ dependencies {
     annotationProcessor(libs.lombok)
 }
 
-// Keep method parameter names in the compiled classes, so Spring MVC can match
-// @PathVariable String username to {username}. Spring Boot's Gradle plugin does this automatically.
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-parameters")
 }
