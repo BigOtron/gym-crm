@@ -1,4 +1,6 @@
 [versions]
+tomcat = "11.0.27"
+jackson = "3.2.3"
 junit-bom = "6.0.0"
 spring = "7.0.9"
 hibernate = "7.4.11.Final"
@@ -10,6 +12,9 @@ logback = "1.5.18"
 mockito = "5.20.0"
 
 [libraries]
+spring-webmvc = { group = "org.springframework", name = "spring-webmvc", version.ref = "spring" }
+tomcat-embed-core = { group = "org.apache.tomcat.embed", name = "tomcat-embed-core", version.ref = "tomcat" }
+jackson-databind = { group = "tools.jackson.core", name = "jackson-databind", version.ref = "jackson" }
 junit-bom = { group = "org.junit", name = "junit-bom", version.ref = "junit-bom" }
 junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter" }
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }

@@ -10,6 +10,9 @@ repositories {
 }
 
 dependencies {
+    implementation(libs.spring.webmvc)
+    implementation(libs.tomcat.embed.core)
+    implementation(libs.jackson.databind)
     implementation(libs.spring.context)
     implementation(libs.spring.orm)
     implementation(libs.hibernate.core)
