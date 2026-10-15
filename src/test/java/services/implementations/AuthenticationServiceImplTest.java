@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -103,5 +104,52 @@ class AuthenticationServiceImplTest {
         assertThrows(AuthenticationException.class, () -> service.authenticate(new Credentials("Anna.Lee", "x")));
         assertThrows(AuthenticationException.class, () -> service.authenticate(new Credentials("Nobody", "pw")));
         assertThrows(AuthenticationException.class, () -> service.authenticate(null));
+    }
+
+    @Test
+    void passwordComparisonIsExact() {
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "Secret")));
+
+        assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "secret")));
+        assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "Secret ")));
+        assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "")));
+        assertTrue(service.traineeCredentialsMatch(new Credentials("John.Smith", "Secret")));
+    }
+
+    @Test
+    void authenticateTraineeRejectsATrainerWithTheRightPassword() {
+        when(traineeDao.findByUsername("Anna.Lee")).thenReturn(Optional.empty());
+
+        assertThrows(AuthenticationException.class,
+                () -> service.authenticateTrainee(new Credentials("Anna.Lee", "pw")));
+    }
+
+    @Test
+    void authenticateTrainerRejectsWrongPassword() {
+        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA)));
+
+        assertThrows(AuthenticationException.class,
+                () -> service.authenticateTrainer(new Credentials("Anna.Lee", "wrong")));
+    }
+
+    @Test
+    void incompleteCredentialsAreRejectedWithoutQueries() {
+        assertThrows(AuthenticationException.class, () -> service.authenticateTrainee(null));
+        assertThrows(AuthenticationException.class, () -> service.authenticateTrainer(new Credentials(null, "pw")));
+        assertThrows(AuthenticationException.class, () -> service.authenticate(new Credentials("Anna.Lee", null)));
+        verifyNoInteractions(userDao, traineeDao, trainerDao);
+    }
+
+    @Test
+    void failureMessageDoesNotRevealWhetherTheUserExists() {
+        when(userDao.findByUsername("Nobody")).thenReturn(Optional.empty());
+        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+
+        String unknownUser = assertThrows(AuthenticationException.class,
+                () -> service.authenticate(new Credentials("Nobody", "pw"))).getMessage();
+        String wrongPassword = assertThrows(AuthenticationException.class,
+                () -> service.authenticate(new Credentials("Anna.Lee", "wrong"))).getMessage();
+
+        assertEquals(unknownUser, wrongPassword);
     }
 }

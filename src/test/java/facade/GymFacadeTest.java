@@ -11,6 +11,7 @@ import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
+import io.gymcrm.entities.TrainingType;
 import io.gymcrm.exceptions.AuthenticationException;
 import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.facade.GymFacade;
@@ -28,7 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,11 +37,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * The facade only delegates: authentication and the "own profile only" rule are the services' job
+ * (see the service tests). The one exception is the role-independent password change.
+ */
 @ExtendWith(MockitoExtension.class)
 class GymFacadeTest {
 
@@ -67,7 +71,7 @@ class GymFacadeTest {
     }
 
     @Test
-    void createProfilesDoNotAuthenticate() {
+    void createProfiles() {
         var traineeRegistration = new TraineeRegistration("John", "Smith", null, null);
         var trainerRegistration = new TrainerRegistration("Anna", "Lee", 6L);
         Trainee trainee = new Trainee();
@@ -81,73 +85,90 @@ class GymFacadeTest {
     }
 
     @Test
-    void credentialsMatchingDelegates() {
+    void credentialsMatchingAndLogin() {
         when(authenticationService.traineeCredentialsMatch(JOHN)).thenReturn(true);
-        when(authenticationService.trainerCredentialsMatch(ANNA)).thenReturn(true);
+        when(authenticationService.trainerCredentialsMatch(JOHN)).thenReturn(false);
 
         assertTrue(facade.traineeCredentialsMatch(JOHN));
-        assertTrue(facade.trainerCredentialsMatch(ANNA));
-    }
-
-    @Test
-    void selectsAuthenticateAnyUser() {
-        facade.getTraineeByUsername(ANNA, "John.Smith");
-        facade.getTrainerByUsername(JOHN, "Anna.Lee");
-
-        verify(authenticationService).authenticate(ANNA);
+        assertFalse(facade.trainerCredentialsMatch(JOHN));
+        facade.login(JOHN);
         verify(authenticationService).authenticate(JOHN);
-        verify(traineeService).getByUsername("John.Smith");
-        verify(trainerService).getByUsername("Anna.Lee");
     }
 
     @Test
-    void traineeOperationsAuthenticateTraineeFirst() {
-        var update = new TraineeUpdate("John", "Smith", null, null, true);
+    void loginWithWrongCredentials() {
+        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
 
-        facade.updateTrainee(JOHN, "John.Smith", update);
+        assertThrows(AuthenticationException.class, () -> facade.login(JOHN));
+    }
+
+    @Test
+    void traineeOperationsPassTheCredentialsOn() {
+        var update = new TraineeUpdate("John", "Smith", null, null, true);
+        Trainee trainee = new Trainee();
+        List<Trainer> trainers = List.of(new Trainer());
+        when(traineeService.getByUsername(ANNA, "John.Smith")).thenReturn(trainee);
+        when(traineeService.update(JOHN, "John.Smith", update)).thenReturn(trainee);
+        when(traineeService.updateTrainers(JOHN, "John.Smith", List.of("Anna.Lee"))).thenReturn(trainers);
+        when(trainerService.getNotAssignedToTrainee(JOHN, "John.Smith")).thenReturn(trainers);
+
+        assertSame(trainee, facade.getTraineeByUsername(ANNA, "John.Smith"));
+        assertSame(trainee, facade.updateTrainee(JOHN, "John.Smith", update));
         facade.setTraineeActive(JOHN, "John.Smith", false);
         facade.deleteTrainee(JOHN, "John.Smith");
-        facade.updateTraineeTrainers(JOHN, "John.Smith", List.of("Anna.Lee"));
+        assertSame(trainers, facade.updateTraineeTrainers(JOHN, "John.Smith", List.of("Anna.Lee")));
+        assertSame(trainers, facade.getTrainersNotAssignedToTrainee(JOHN, "John.Smith"));
 
-        InOrder order = inOrder(authenticationService, traineeService);
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).update("John.Smith", update);
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).setActive("John.Smith", false);
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).deleteByUsername("John.Smith");
-        order.verify(authenticationService).authenticateTrainee(JOHN);
-        order.verify(traineeService).updateTrainers("John.Smith", List.of("Anna.Lee"));
+        verify(traineeService).setActive(JOHN, "John.Smith", false);
+        verify(traineeService).delete(JOHN, "John.Smith");
+        verifyNoInteractions(authenticationService);
     }
 
     @Test
-    void trainerOperationsAuthenticateTrainerFirst() {
+    void trainerOperationsPassTheCredentialsOn() {
         var update = new TrainerUpdate("Anna", "Lee", true);
+        Trainer trainer = new Trainer();
+        when(trainerService.getByUsername(JOHN, "Anna.Lee")).thenReturn(trainer);
+        when(trainerService.update(ANNA, "Anna.Lee", update)).thenReturn(trainer);
 
-        facade.updateTrainer(ANNA, "Anna.Lee", update);
+        assertSame(trainer, facade.getTrainerByUsername(JOHN, "Anna.Lee"));
+        assertSame(trainer, facade.updateTrainer(ANNA, "Anna.Lee", update));
         facade.setTrainerActive(ANNA, "Anna.Lee", false);
 
-        InOrder order = inOrder(authenticationService, trainerService);
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).update("Anna.Lee", update);
-        order.verify(authenticationService).authenticateTrainer(ANNA);
-        order.verify(trainerService).setActive("Anna.Lee", false);
+        verify(trainerService).setActive(ANNA, "Anna.Lee", false);
+        verifyNoInteractions(authenticationService);
     }
 
     @Test
-    void changingSomeoneElsesProfileIsForbidden() {
-        var outsider = new Credentials("David.Brown", "secret");
+    void trainingOperationsPassTheCredentialsOn() {
+        var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
+        var traineeCriteria = new TraineeTrainingCriteria(null, null, "Anna", null);
+        var trainerCriteria = new TrainerTrainingCriteria(null, null, "John");
+        Training training = new Training();
+        List<Training> trainings = List.of(training);
+        List<TrainingType> types = List.of();
+        when(trainingService.create(JOHN, newTraining)).thenReturn(training);
+        when(trainingService.getTraineeTrainings(JOHN, "John.Smith", traineeCriteria)).thenReturn(trainings);
+        when(trainingService.getTrainerTrainings(ANNA, "Anna.Lee", trainerCriteria)).thenReturn(trainings);
+        when(trainingService.getTrainingTypes(JOHN)).thenReturn(types);
 
-        assertThrows(ForbiddenException.class,
-                () -> facade.updateTrainee(outsider, "John.Smith", new TraineeUpdate("J", "S", null, null, true)));
-        assertThrows(ForbiddenException.class, () -> facade.setTraineeActive(outsider, "John.Smith", false));
-        assertThrows(ForbiddenException.class, () -> facade.deleteTrainee(outsider, "John.Smith"));
-        assertThrows(ForbiddenException.class, () -> facade.updateTraineeTrainers(outsider, "John.Smith", List.of()));
-        assertThrows(ForbiddenException.class,
-                () -> facade.updateTrainer(outsider, "Anna.Lee", new TrainerUpdate("A", "L", true)));
-        assertThrows(ForbiddenException.class, () -> facade.setTrainerActive(outsider, "Anna.Lee", false));
-        verifyNoInteractions(traineeService, trainerService);
+        assertSame(training, facade.addTraining(JOHN, newTraining));
+        assertSame(trainings, facade.getTraineeTrainings(JOHN, "John.Smith", traineeCriteria));
+        assertSame(trainings, facade.getTrainerTrainings(ANNA, "Anna.Lee", trainerCriteria));
+        assertSame(types, facade.getTrainingTypes(JOHN));
+        verifyNoInteractions(authenticationService);
     }
+
+    @Test
+    void serviceErrorsReachTheCaller() {
+        doThrow(new ForbiddenException("not yours")).when(traineeService).delete(ANNA, "John.Smith");
+        when(trainingService.getTrainingTypes(JOHN)).thenThrow(new AuthenticationException("bad"));
+
+        assertThrows(ForbiddenException.class, () -> facade.deleteTrainee(ANNA, "John.Smith"));
+        assertThrows(AuthenticationException.class, () -> facade.getTrainingTypes(JOHN));
+    }
+
+    // Password change: the only place where the facade decides something
 
     @Test
     void changePasswordOfTrainee() {
@@ -157,7 +178,7 @@ class GymFacadeTest {
 
         InOrder order = inOrder(authenticationService, traineeService);
         order.verify(authenticationService).authenticate(JOHN);
-        order.verify(traineeService).changePassword("John.Smith", "newPassword");
+        order.verify(traineeService).changePassword(JOHN, "newPassword");
         verifyNoInteractions(trainerService);
     }
 
@@ -169,81 +190,16 @@ class GymFacadeTest {
 
         InOrder order = inOrder(authenticationService, trainerService);
         order.verify(authenticationService).authenticate(ANNA);
-        order.verify(trainerService).changePassword("Anna.Lee", "newPassword");
-        verify(authenticationService, never()).authenticateTrainer(any());
+        order.verify(trainerService).changePassword(ANNA, "newPassword");
         verifyNoInteractions(traineeService);
     }
 
     @Test
-    void changePasswordWithWrongOldPasswordFails() {
+    void changePasswordWithWrongOldPasswordChangesNothing() {
         doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
 
         assertThrows(AuthenticationException.class, () -> facade.changePassword(JOHN, "newPassword"));
         verify(authenticationService, never()).traineeCredentialsMatch(any());
-        verify(authenticationService, never()).authenticateTrainer(any());
         verifyNoInteractions(traineeService, trainerService);
-    }
-
-    @Test
-    void loginAndTrainingTypesAuthenticate() {
-        facade.login(JOHN);
-        facade.getTrainingTypes(JOHN);
-
-        verify(authenticationService, times(2)).authenticate(JOHN);
-        verify(trainingService).getTrainingTypes();
-    }
-
-    @Test
-    void failedAuthenticationStopsTheOperation() {
-        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticateTrainee(JOHN);
-        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
-
-        assertThrows(AuthenticationException.class, () -> facade.deleteTrainee(JOHN, "John.Smith"));
-        assertThrows(AuthenticationException.class, () -> facade.getTraineeByUsername(JOHN, "John.Smith"));
-        assertThrows(AuthenticationException.class,
-                () -> facade.getTraineeTrainings(JOHN, "John.Smith", TraineeTrainingCriteria.none()));
-        verifyNoInteractions(traineeService, trainingService);
-    }
-
-    @Test
-    void trainingListsDelegate() {
-        var traineeCriteria = new TraineeTrainingCriteria(LocalDate.MIN, null, "Anna", "Yoga");
-        var trainerCriteria = new TrainerTrainingCriteria(null, LocalDate.MAX, "John");
-        List<Training> trainings = List.of(new Training());
-        when(trainingService.getTraineeTrainings("John.Smith", traineeCriteria)).thenReturn(trainings);
-        when(trainingService.getTrainerTrainings("Anna.Lee", trainerCriteria)).thenReturn(trainings);
-
-        assertSame(trainings, facade.getTraineeTrainings(JOHN, "John.Smith", traineeCriteria));
-        assertSame(trainings, facade.getTrainerTrainings(ANNA, "Anna.Lee", trainerCriteria));
-    }
-
-    @Test
-    void addTrainingByParticipant() {
-        var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
-        Training training = new Training();
-        when(trainingService.create(newTraining)).thenReturn(training);
-
-        assertSame(training, facade.addTraining(ANNA, newTraining));
-        assertSame(training, facade.addTraining(JOHN, newTraining));
-    }
-
-    @Test
-    void addTrainingByOutsiderIsRejected() {
-        var newTraining = new NewTraining("John.Smith", "Anna.Lee", "Yoga", LocalDate.now(), 60);
-        var outsider = new Credentials("David.Brown", "secret");
-
-        assertThrows(ForbiddenException.class, () -> facade.addTraining(outsider, newTraining));
-        verify(authenticationService).authenticate(outsider);
-        verifyNoInteractions(trainingService);
-    }
-
-    @Test
-    void notAssignedTrainersDelegates() {
-        List<Trainer> trainers = List.of(new Trainer());
-        when(trainerService.getNotAssignedToTrainee("John.Smith")).thenReturn(trainers);
-
-        assertEquals(trainers, facade.getTrainersNotAssignedToTrainee(JOHN, "John.Smith"));
-        verify(authenticationService).authenticate(JOHN);
-        verify(trainerService).getNotAssignedToTrainee(any());
     }
 }

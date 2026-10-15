@@ -109,7 +109,8 @@ Example: `GET /api/trainees/John.Smith/trainings?from=2026-09-01&trainerName=ann
 
 - **Authentication.** Every endpoint except the two registrations and the password change needs an HTTP Basic
   `Authorization` header (`curl -u username:password`). The password change is authenticated by the old
-  password in its body.
+  password in its body. The check happens in the service layer, so it can't be skipped by calling a service
+  directly.
 - **Own profile only.** Changing a profile (update, delete, status, trainers list) is only allowed on the
   authenticated user's own profile; otherwise the response is `403`. Any authenticated user can read profiles
   and training lists. A training can be added by its trainee or its trainer.
@@ -167,8 +168,9 @@ io.gymcrm
 ├── exceptions                   AuthenticationException (401), ForbiddenException (403),
 │                                NotFoundException (404), ConflictException (409)
 ├── dao                          DAOs using the EntityManager and the Criteria API
-├── services                     business logic and validation, @Transactional
-├── facade                       GymFacade: authentication and "own profile only" checks
+├── services                     business logic, validation, authentication and "own profile only"
+│                                checks, @Transactional
+├── facade                       GymFacade: single entry point, delegates to the services
 ├── util                         UsernameGenerator, PasswordGenerator
 └── web
     ├── config                   WebConfig (Spring MVC), OpenApiConfig (API-wide Swagger definitions)
@@ -190,6 +192,8 @@ entity classes, and fields such as passwords can't leak by accident.
 - **Controller unit tests** (`web.controller.unit`) test each controller with a mocked facade, for successful
   and failing requests.
 - **DAO tests** run every query against H2.
+- **`ServiceAuthenticationIntegrationTest`** calls the services directly and shows that every operation
+  rejects wrong credentials and other users' profiles without changing the database.
 - **Integration tests** send HTTP requests through the whole application against H2:
   `RestApiIntegrationTest` (successful paths), `ErrorHandlingIntegrationTest` (every error status) and
   `LoggingIntegrationTest` (one transaction id across all log lines of a request).
