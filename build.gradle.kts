@@ -1,5 +1,8 @@
+import org.springframework.boot.gradle.plugin.SpringBootPlugin
+
 plugins {
-    id("java")
+    java
+    alias(libs.plugins.spring.boot)
 }
 
 group = "io.gymcrm"
@@ -16,38 +19,27 @@ repositories {
 }
 
 dependencies {
-    implementation(libs.spring.webmvc)
-    implementation(libs.tomcat.embed.core)
-    implementation(libs.jackson.databind)
-    implementation(libs.hibernate.validator)
-    runtimeOnly(libs.expressly)
-    implementation(libs.swagger.annotations)
-    implementation(libs.spring.context)
-    implementation(libs.spring.orm)
-    implementation(libs.hibernate.core)
-    implementation(libs.hikari)
-    implementation(libs.logback.classic)
-    runtimeOnly(libs.postgresql)
+    // Spring Boot's BOM picks compatible versions for everything below that has no version.
+    implementation(platform(SpringBootPlugin.BOM_COORDINATES))
+    annotationProcessor(platform(SpringBootPlugin.BOM_COORDINATES))
 
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
-    testRuntimeOnly(libs.junit.platform.launcher)
-    testImplementation(libs.mockito.core)
-    testImplementation(libs.mockito.junit.jupiter)
-    testImplementation(libs.spring.test)
-    testImplementation(libs.json.path)
-    testImplementation(libs.hamcrest)
-    testImplementation(libs.jsonassert)
-    testRuntimeOnly(libs.h2)
+    implementation(libs.spring.boot.starter.webmvc)
+    implementation(libs.spring.boot.starter.data.jpa)
+    implementation(libs.spring.boot.starter.validation)
+    implementation(libs.swagger.annotations)
+    runtimeOnly(libs.postgresql)
 
     compileOnly(libs.lombok)
     annotationProcessor(libs.lombok)
-}
 
-tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("-parameters")
+    testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.spring.boot.starter.webmvc.test)
+    testRuntimeOnly(libs.junit.platform.launcher)
+    testRuntimeOnly(libs.h2)
 }
 
 tasks.test {
     useJUnitPlatform()
+    // Tests run against H2 with the settings in src/test/resources/application-test.yml.
+    systemProperty("spring.profiles.active", "test")
 }

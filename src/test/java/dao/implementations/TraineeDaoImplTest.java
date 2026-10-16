@@ -7,6 +7,7 @@ import io.gymcrm.entities.User;
 import jakarta.persistence.PersistenceException;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import support.DaoTestBase;
 
@@ -38,7 +39,7 @@ class TraineeDaoImplTest extends DaoTestBase {
 
     @Test
     void saveWithoutUserFails() {
-        assertThrows(PersistenceException.class, () -> {
+        assertThrows(DataIntegrityViolationException.class, () -> {
             traineeDao.save(new Trainee());
             entityManager.flush();
         });

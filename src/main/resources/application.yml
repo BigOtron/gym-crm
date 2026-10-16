@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: gym-crm
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/gymcrm
+    username: ${DB_USERNAME:gymcrm}
+    password: ${DB_PASSWORD:gymcrm}
+    hikari:
+      maximum-pool-size: 10
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+
+server:
+  port: 8080
