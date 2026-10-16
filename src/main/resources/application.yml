@@ -1,13 +1,8 @@
 spring:
   application:
     name: gym-crm
-
-  datasource:
-    url: jdbc:postgresql://localhost:5432/gymcrm
-    username: ${DB_USERNAME:gymcrm}
-    password: ${DB_PASSWORD:gymcrm}
-    hikari:
-      maximum-pool-size: 10
+  profiles:
+    default: local
 
   sql:
     init:
@@ -19,7 +14,13 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
-    show-sql: false
 
 server:
   port: 8080
+
+logging:
+  level:
+    root: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN
