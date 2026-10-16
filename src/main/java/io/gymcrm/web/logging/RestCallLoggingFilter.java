@@ -5,6 +5,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
@@ -14,12 +17,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 
 @Slf4j
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RestCallLoggingFilter extends OncePerRequestFilter {
 
     private static final int MAX_BODY = 2000;
 
     /** {@code "password":"x"}, {@code "oldPassword":"x"}, {@code "newPassword":"x"} → {@code "...":"***"} */
     private static final Pattern PASSWORD = Pattern.compile("(\"(?:password|oldPassword|newPassword)\"\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"");
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return request.getRequestURI().startsWith("/actuator");
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

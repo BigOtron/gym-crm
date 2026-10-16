@@ -1,4 +1,4 @@
-import io.gymcrm.config.AppConfig;
+import io.gymcrm.Application;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import javax.sql.DataSource;
 import java.time.LocalDate;
@@ -31,12 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Calls the services directly, not through the facade, to show that authentication can't be skipped:
- * every operation except creating a profile rejects wrong credentials, changes to someone else's
- * profile are forbidden, and in both cases the database stays unchanged.
- */
-@SpringJUnitConfig(AppConfig.class)
+@SpringBootTest(classes = Application.class)
 class ServiceAuthenticationIntegrationTest {
 
     @Autowired

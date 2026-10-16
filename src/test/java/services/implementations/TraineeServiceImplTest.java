@@ -15,6 +15,8 @@ import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.implementations.TraineeServiceImpl;
 import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
+import io.gymcrm.metrics.GymMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -74,9 +76,12 @@ class TraineeServiceImplTest {
 
     private TraineeServiceImpl service;
 
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     @BeforeEach
     void setUp() {
         service = new TraineeServiceImpl();
+        service.setMetrics(new GymMetrics(registry));
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
         service.setUsernameGenerator(usernameGenerator);
@@ -113,6 +118,7 @@ class TraineeServiceImplTest {
             assertEquals(LocalDate.of(1995, 4, 12), created.getDateOfBirth());
             assertEquals("Tashkent", created.getAddress());
             verifyNoInteractions(authenticationService);
+            assertEquals(1, registry.get(GymMetrics.REGISTRATIONS).tag("role", "trainee").counter().count());
         }
 
         @ParameterizedTest
@@ -137,6 +143,7 @@ class TraineeServiceImplTest {
         void rejectsNullRegistration() {
             assertThrows(NullPointerException.class, () -> service.create(null));
             verifyNoInteractions(traineeDao);
+            assertEquals(0, registry.get(GymMetrics.REGISTRATIONS).tag("role", "trainee").counter().count());
         }
     }
 

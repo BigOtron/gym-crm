@@ -11,4 +11,6 @@ public interface AuthenticationService {
     void authenticateTrainer(Credentials credentials);
 
     void authenticate(Credentials credentials);
+
+    void login(Credentials credentials);
 }

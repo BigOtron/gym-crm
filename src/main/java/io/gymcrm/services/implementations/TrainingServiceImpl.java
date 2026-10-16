@@ -14,6 +14,7 @@ import io.gymcrm.entities.Training;
 import io.gymcrm.entities.TrainingType;
 import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TrainingService;
 import lombok.extern.slf4j.Slf4j;
@@ -35,9 +36,15 @@ public class TrainingServiceImpl implements TrainingService {
 
     private TrainingDao trainingDao;
     private AuthenticationService authenticationService;
+    private GymMetrics metrics;
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
     private TrainingTypeDao trainingTypeDao;
+
+    @Autowired
+    public void setMetrics(GymMetrics metrics) {
+        this.metrics = metrics;
+    }
 
     @Autowired
     public void setAuthenticationService(AuthenticationService authenticationService) {
@@ -107,6 +114,7 @@ public class TrainingServiceImpl implements TrainingService {
         log.info("Training created: '{}' (id {}), type {}, date {}, trainee {}, trainer {}",
                 name, created.getId(), trainer.getSpecialization().getTrainingTypeName(), date,
                 traineeUsername, trainerUsername);
+        metrics.trainingCreated(trainer.getSpecialization().getTrainingTypeName(), duration);
         return created;
     }
 

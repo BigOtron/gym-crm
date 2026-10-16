@@ -7,6 +7,7 @@ import io.gymcrm.entities.User;
 import jakarta.persistence.PersistenceException;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import support.DaoTestBase;
 
@@ -38,7 +39,7 @@ class TraineeDaoImplTest extends DaoTestBase {
 
     @Test
     void saveWithoutUserFails() {
-        assertThrows(PersistenceException.class, () -> {
+        assertThrows(DataIntegrityViolationException.class, () -> {
             traineeDao.save(new Trainee());
             entityManager.flush();
         });
@@ -104,5 +105,15 @@ class TraineeDaoImplTest extends DaoTestBase {
         assertEquals(0, count("trainee_trainer"));
         assertEquals(1, count("trainer"));
         assertEquals(1, count("users")); // only the trainer's user is left
+    }
+
+    @Test
+    void countActiveCountsOnlyActiveProfiles() {
+        persistTrainee("John", "Smith", "John.Smith");
+        persistTrainee("Maria", "Garcia", "Maria.Garcia").getUser().setActive(false);
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        flushAndClear();
+
+        assertEquals(1, traineeDao.countActive());
     }
 }
