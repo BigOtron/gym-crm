@@ -5,3 +5,8 @@ spring:
     password: ""
     hikari:
       maximum-pool-size: 5
+
+management:
+  endpoint:
+    health:
+      show-details: always

@@ -8,7 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -76,5 +78,21 @@ public class TrainerDaoImpl implements TrainerDao {
                 .getResultList();
         log.debug("Found {} trainers not assigned to trainee {}", trainers.size(), traineeUsername);
         return trainers;
+    }
+
+    @Override
+    public Map<String, Long> countActiveTrainersPerTrainingType() {
+        List<Object[]> rows = entityManager.createQuery("""
+                        select tt.trainingTypeName, count(case when u.active = true then t.id end)
+                        from TrainingType tt
+                        left join Trainer t on t.specialization = tt
+                        left join t.user u
+                        group by tt.id, tt.trainingTypeName
+                        order by tt.id""", Object[].class)
+                .getResultList();
+        Map<String, Long> counts = new LinkedHashMap<>();
+        rows.forEach(row -> counts.put((String) row[0], (Long) row[1]));
+        log.debug("Active trainers per training type: {}", counts);
+        return counts;
     }
 }

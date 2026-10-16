@@ -27,6 +27,11 @@ public class RestCallLoggingFilter extends OncePerRequestFilter {
     private static final Pattern PASSWORD = Pattern.compile("(\"(?:password|oldPassword|newPassword)\"\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"");
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return request.getRequestURI().startsWith("/actuator");
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         ContentCachingRequestWrapper cachedRequest = new ContentCachingRequestWrapper(request, MAX_BODY + 1);

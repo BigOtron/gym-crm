@@ -150,4 +150,19 @@ class ProfilesTest {
             context.close();
         }
     }
+
+    @Test
+    void healthDetailsAreOnlyShownOnDeveloperEnvironments() {
+        // The actuator endpoints have no authentication, and details include e.g. the database URL.
+        assertEquals("always", healthDetails("local"));
+        assertEquals("always", healthDetails("dev"));
+        assertEquals("never", healthDetails("stg"));
+        assertEquals("never", healthDetails("prod"));
+    }
+
+    private String healthDetails(String profile) {
+        String value = environment(profile, allVariables()).getProperty("management.endpoint.health.show-details");
+        context.close();
+        return value;
+    }
 }

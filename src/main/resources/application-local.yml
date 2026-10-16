@@ -11,3 +11,8 @@ spring:
 logging:
   level:
     io.gymcrm: DEBUG
+
+management:
+  endpoint:
+    health:
+      show-details: always

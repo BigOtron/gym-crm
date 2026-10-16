@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     implementation(libs.spring.boot.starter.data.jpa)
     implementation(libs.spring.boot.starter.validation)
+    implementation(libs.spring.boot.starter.actuator)
     implementation(libs.swagger.annotations)
     runtimeOnly(libs.postgresql)
 
@@ -38,8 +39,11 @@ dependencies {
     testRuntimeOnly(libs.h2)
 }
 
+springBoot {
+    buildInfo()
+}
+
 tasks.test {
     useJUnitPlatform()
-    // Tests run against H2 with the settings in src/test/resources/application-test.yml.
     systemProperty("spring.profiles.active", "test")
 }
