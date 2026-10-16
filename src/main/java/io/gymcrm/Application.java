@@ -1,49 +1,79 @@
 package io.gymcrm;
 
 import io.gymcrm.config.AppConfig;
-import io.gymcrm.dto.Credentials;
-import io.gymcrm.dto.NewTraining;
-import io.gymcrm.dto.TraineeRegistration;
-import io.gymcrm.dto.TraineeTrainingCriteria;
-import io.gymcrm.dto.TrainerRegistration;
-import io.gymcrm.entities.Trainee;
-import io.gymcrm.entities.Trainer;
-import io.gymcrm.facade.GymFacade;
+import io.gymcrm.web.config.WebConfig;
+import io.gymcrm.web.logging.WebFilters;
+import jakarta.servlet.Filter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.apache.catalina.LifecycleException;
+import org.apache.catalina.core.StandardContext;
+import org.apache.catalina.startup.Tomcat;
+import org.apache.tomcat.util.descriptor.web.FilterDef;
+import org.apache.tomcat.util.descriptor.web.FilterMap;
+import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
+import org.springframework.web.servlet.DispatcherServlet;
 
-import java.time.LocalDate;
-import java.util.List;
+import java.nio.file.Files;
 
 @Slf4j
 public class Application {
 
-    public static void main(String[] args) {
-        log.info("Starting Gym CRM");
-        try (var context = new AnnotationConfigApplicationContext(AppConfig.class)) {
-            GymFacade facade = context.getBean(GymFacade.class);
+    private static final int DEFAULT_PORT = 8080;
 
-            Trainee trainee = facade.createTrainee(
-                    new TraineeRegistration("John", "Smith", LocalDate.of(1998, 3, 14), "Tashkent"));
-            Trainer trainer = facade.createTrainer(new TrainerRegistration("Anna", "Lee", "Yoga"));
-            var traineeAuth = new Credentials(trainee.getUser().getUsername(), trainee.getUser().getPassword());
-            var trainerAuth = new Credentials(trainer.getUser().getUsername(), trainer.getUser().getPassword());
+    public static void main(String[] args) throws Exception {
+        int port = Integer.parseInt(System.getProperty("server.port", String.valueOf(DEFAULT_PORT)));
 
-            facade.addTraining(trainerAuth, new NewTraining(traineeAuth.username(), trainerAuth.username(),
-                    "Morning yoga", LocalDate.now(), 60));
-            log.info("{} has {} trainings", traineeAuth.username(),
-                    facade.getTraineeTrainings(traineeAuth, traineeAuth.username(),
-                            TraineeTrainingCriteria.none()).size());
+        AnnotationConfigWebApplicationContext spring = new AnnotationConfigWebApplicationContext();
+        spring.register(AppConfig.class, WebConfig.class);
 
-            List<Trainer> free = facade.getTrainersNotAssignedToTrainee(traineeAuth, traineeAuth.username());
-            log.info("{} trainers are not assigned to {}", free.size(), traineeAuth.username());
+        Tomcat tomcat = new Tomcat();
+        tomcat.setPort(port);
+        tomcat.setBaseDir(Files.createTempDirectory("gymcrm-tomcat").toString());
+        tomcat.getConnector();
 
-            Trainee namesake = facade.createTrainee(new TraineeRegistration("John", "Smith", null, null));
-            log.info("Second John Smith got username {}", namesake.getUser().getUsername());
-        } catch (RuntimeException e) {
-            log.error("Gym CRM failed", e);
-            throw e;
+        StandardContext context = (StandardContext) tomcat.addContext("", null);
+        context.setFailCtxIfServletStartFails(true);
+        Tomcat.addServlet(context, "dispatcher", new DispatcherServlet(spring)).setLoadOnStartup(1);
+        context.addServletMapping("/", "dispatcher");
+
+        // Filters run before the DispatcherServlet, in the order they are added.
+        for (Filter filter : WebFilters.all()) {
+            addFilter(context, filter);
         }
-        log.info("Gym CRM stopped");
+
+        try {
+            tomcat.start();
+        } catch (LifecycleException e) {
+            log.error("Gym CRM failed to start", e);
+            tomcat.destroy();
+            System.exit(1);
+        }
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Stopping Gym CRM");
+            try {
+                tomcat.stop();
+                tomcat.destroy();
+            } catch (LifecycleException e) {
+                log.warn("Error while stopping Tomcat", e);
+            }
+            spring.close();
+        }));
+
+        log.info("Gym CRM started on http://localhost:{}", port);
+        tomcat.getServer().await();
+    }
+
+    private static void addFilter(StandardContext context, Filter filter) {
+        String name = filter.getClass().getSimpleName();
+        FilterDef definition = new FilterDef();
+        definition.setFilterName(name);
+        definition.setFilter(filter);
+        context.addFilterDef(definition);
+
+        FilterMap mapping = new FilterMap();
+        mapping.setFilterName(name);
+        mapping.addURLPattern("/*");
+        context.addFilterMap(mapping);
     }
 }

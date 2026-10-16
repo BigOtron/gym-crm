@@ -3,6 +3,7 @@ package io.gymcrm.services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingDao;
+import io.gymcrm.dao.TrainingTypeDao;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeTrainingCriteria;
@@ -10,7 +11,8 @@ import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
-import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.entities.TrainingType;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TrainingService;
@@ -35,6 +37,7 @@ public class TrainingServiceImpl implements TrainingService {
     private AuthenticationService authenticationService;
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
+    private TrainingTypeDao trainingTypeDao;
 
     @Autowired
     public void setAuthenticationService(AuthenticationService authenticationService) {
@@ -56,6 +59,11 @@ public class TrainingServiceImpl implements TrainingService {
         this.trainerDao = trainerDao;
     }
 
+    @Autowired
+    public void setTrainingTypeDao(TrainingTypeDao trainingTypeDao) {
+        this.trainingTypeDao = trainingTypeDao;
+    }
+
     @Override
     public Training create(Credentials auth, NewTraining newTraining) {
         authenticationService.authenticate(auth);
@@ -71,7 +79,7 @@ public class TrainingServiceImpl implements TrainingService {
         }
         if (!auth.username().equals(traineeUsername) && !auth.username().equals(trainerUsername)) {
             log.warn("User {} tried to add a training they don't take part in", auth.username());
-            throw new AuthenticationException("Only the trainee or the trainer can add a training");
+            throw new ForbiddenException("Only the trainee or the trainer can add a training");
         }
         log.debug("Creating training '{}' for trainee {} with trainer {}", name, traineeUsername, trainerUsername);
 
@@ -126,5 +134,12 @@ public class TrainingServiceImpl implements TrainingService {
         }
         return trainingDao.findTrainerTrainings(trainerUsername,
                 criteria == null ? TrainerTrainingCriteria.none() : criteria);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TrainingType> getTrainingTypes(Credentials auth) {
+        authenticationService.authenticate(auth);
+        return trainingTypeDao.findAll();
     }
 }

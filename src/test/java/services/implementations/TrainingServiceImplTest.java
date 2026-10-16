@@ -3,6 +3,7 @@ package services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingDao;
+import io.gymcrm.dao.TrainingTypeDao;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeTrainingCriteria;
@@ -11,6 +12,7 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.implementations.TrainingServiceImpl;
@@ -37,6 +39,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static support.TestData.FITNESS;
 import static support.TestData.YOGA;
 import static support.TestData.trainee;
 import static support.TestData.trainer;
@@ -59,6 +62,9 @@ class TrainingServiceImplTest {
     private TrainerDao trainerDao;
 
     @Mock
+    private TrainingTypeDao trainingTypeDao;
+
+    @Mock
     private AuthenticationService authenticationService;
 
     private TrainingServiceImpl service;
@@ -69,6 +75,7 @@ class TrainingServiceImplTest {
         service.setTrainingDao(trainingDao);
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
+        service.setTrainingTypeDao(trainingTypeDao);
         service.setAuthenticationService(authenticationService);
     }
 
@@ -126,7 +133,7 @@ class TrainingServiceImplTest {
         void outsiderCantAddSomeoneElsesTraining() {
             Credentials david = new Credentials("David.Brown", "pw");
 
-            AuthenticationException e = assertThrows(AuthenticationException.class,
+            ForbiddenException e = assertThrows(ForbiddenException.class,
                     () -> service.create(david, newTraining(60)));
 
             assertEquals("Only the trainee or the trainer can add a training", e.getMessage());
@@ -243,6 +250,26 @@ class TrainingServiceImplTest {
 
             assertThrows(NotFoundException.class, () -> service.getTrainerTrainings(ANNA, "Nobody", null));
             verifyNoInteractions(trainingDao);
+        }
+    }
+
+    @Nested
+    class TrainingTypes {
+
+        @Test
+        void listsAllTypes() {
+            when(trainingTypeDao.findAll()).thenReturn(List.of(FITNESS, YOGA));
+
+            assertEquals(List.of(FITNESS, YOGA), service.getTrainingTypes(JOHN));
+            verify(authenticationService).authenticate(JOHN);
+        }
+
+        @Test
+        void wrongCredentials() {
+            doThrow(WRONG_PASSWORD).when(authenticationService).authenticate(JOHN);
+
+            assertThrows(AuthenticationException.class, () -> service.getTrainingTypes(JOHN));
+            verifyNoInteractions(trainingTypeDao);
         }
     }
 }

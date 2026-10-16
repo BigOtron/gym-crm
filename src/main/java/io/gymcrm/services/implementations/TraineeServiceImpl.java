@@ -8,6 +8,7 @@ import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.User;
+import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
@@ -24,7 +25,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static io.gymcrm.services.Access.requireOwnProfile;
 import static io.gymcrm.services.Validation.requireText;
+import static io.gymcrm.services.Validation.requireValue;
 
 @Slf4j
 @Service
@@ -99,36 +102,42 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public Trainee update(Credentials auth, TraineeUpdate update) {
+    public Trainee update(Credentials auth, String username, TraineeUpdate update) {
         authenticationService.authenticateTrainee(auth);
-        String username = auth.username();
+        requireOwnProfile(auth, username);
         Objects.requireNonNull(update, "update must not be null");
         String firstName = requireText(update.firstName(), "First name");
         String lastName = requireText(update.lastName(), "Last name");
+        boolean active = requireValue(update.isActive(), "Is active");
 
         Trainee trainee = find(username);
         trainee.getUser().setFirstName(firstName);
         trainee.getUser().setLastName(lastName);
         trainee.setDateOfBirth(update.dateOfBirth());
         trainee.setAddress(update.address());
+        trainee.getUser().setActive(active);
         log.info("Trainee {} updated", username);
         return trainee;
     }
 
     @Override
-    public boolean toggleActive(Credentials auth) {
+    public void setActive(Credentials auth, String username, boolean active) {
         authenticationService.authenticateTrainee(auth);
-        String username = auth.username();
+        requireOwnProfile(auth, username);
         User user = find(username).getUser();
-        user.setActive(!user.isActive());
-        log.info("Trainee {} is now {}", username, user.isActive() ? "active" : "inactive");
-        return user.isActive();
+        String state = active ? "active" : "inactive";
+        if (user.isActive() == active) {
+            log.warn("Trainee {} is already {}", username, state);
+            throw new ConflictException("Trainee " + username + " is already " + state);
+        }
+        user.setActive(active);
+        log.info("Trainee {} is now {}", username, state);
     }
 
     @Override
-    public void delete(Credentials auth) {
+    public void delete(Credentials auth, String username) {
         authenticationService.authenticateTrainee(auth);
-        String username = auth.username();
+        requireOwnProfile(auth, username);
         Trainee trainee = find(username);
         int trainings = trainee.getTrainings().size();
         traineeDao.delete(trainee);
@@ -136,9 +145,9 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public List<Trainer> updateTrainers(Credentials auth, List<String> trainerUsernames) {
+    public List<Trainer> updateTrainers(Credentials auth, String username, List<String> trainerUsernames) {
         authenticationService.authenticateTrainee(auth);
-        String username = auth.username();
+        requireOwnProfile(auth, username);
         Objects.requireNonNull(trainerUsernames, "trainerUsernames must not be null");
         Set<String> requested = new LinkedHashSet<>(trainerUsernames);
         Trainee trainee = find(username);

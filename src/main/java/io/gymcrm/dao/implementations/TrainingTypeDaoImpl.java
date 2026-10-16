@@ -22,6 +22,13 @@ public class TrainingTypeDaoImpl implements TrainingTypeDao {
     }
 
     @Override
+    public Optional<TrainingType> findById(Long id) {
+        Optional<TrainingType> type = Optional.ofNullable(entityManager.find(TrainingType.class, id));
+        log.debug("Lookup training type {}: {}", id, type.isPresent() ? "found" : "not found");
+        return type;
+    }
+
+    @Override
     public Optional<TrainingType> findByName(String name) {
         Optional<TrainingType> type = entityManager.createQuery(
                         "select t from TrainingType t where lower(t.trainingTypeName) = lower(:name)",

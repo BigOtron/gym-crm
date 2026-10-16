@@ -8,6 +8,8 @@ import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.ConflictException;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.implementations.TraineeServiceImpl;
@@ -31,6 +33,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -51,6 +54,7 @@ import static support.TestData.trainer;
 class TraineeServiceImplTest {
 
     private static final Credentials JOHN = new Credentials("John.Smith", "secret");
+    private static final Credentials MARIA = new Credentials("Maria.Garcia", "secret");
     private static final AuthenticationException WRONG_PASSWORD = new AuthenticationException("Invalid username or password");
 
     @Mock
@@ -108,25 +112,6 @@ class TraineeServiceImplTest {
             assertTrue(created.getUser().isActive());
             assertEquals(LocalDate.of(1995, 4, 12), created.getDateOfBirth());
             assertEquals("Tashkent", created.getAddress());
-        }
-
-        @Test
-        void optionalFieldsMayBeMissing() {
-            when(usernameGenerator.generate("John", "Smith")).thenReturn("John.Smith");
-            when(traineeDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            Trainee created = service.create(new TraineeRegistration("John", "Smith", null, null));
-
-            assertEquals(null, created.getDateOfBirth());
-            assertEquals(null, created.getAddress());
-        }
-
-        @Test
-        void needsNoAuthentication() {
-            when(traineeDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            service.create(new TraineeRegistration("John", "Smith", null, null));
-
             verifyNoInteractions(authenticationService);
         }
 
@@ -222,15 +207,16 @@ class TraineeServiceImplTest {
         void changesFieldsButKeepsUsernameAndPassword() {
             Trainee john = givenJohn();
 
-            service.update(JOHN, new TraineeUpdate("Johnny", "Smithson", LocalDate.of(2000, 1, 1), "Bukhara"));
+            service.update(JOHN, "John.Smith",
+                    new TraineeUpdate("Johnny", "Smithson", LocalDate.of(2000, 1, 1), "Bukhara", false));
 
             assertEquals("Johnny", john.getUser().getFirstName());
             assertEquals("Smithson", john.getUser().getLastName());
             assertEquals(LocalDate.of(2000, 1, 1), john.getDateOfBirth());
             assertEquals("Bukhara", john.getAddress());
+            assertFalse(john.getUser().isActive());
             assertEquals("John.Smith", john.getUser().getUsername());
             assertEquals("secret", john.getUser().getPassword());
-            verify(authenticationService).authenticateTrainee(JOHN);
         }
 
         @Test
@@ -238,32 +224,36 @@ class TraineeServiceImplTest {
             Trainee john = givenJohn();
             john.setAddress("Tashkent");
 
-            service.update(JOHN, new TraineeUpdate("John", "Smith", null, null));
+            service.update(JOHN, "John.Smith", new TraineeUpdate("John", "Smith", null, null, true));
 
-            assertEquals(null, john.getAddress());
+            assertNull(john.getAddress());
         }
 
         @Test
         void wrongCredentialsChangeNothing() {
             givenWrongTraineeCredentials();
 
-            assertThrows(AuthenticationException.class,
-                    () -> service.update(JOHN, new TraineeUpdate("Johnny", "Smith", null, null)));
+            assertThrows(AuthenticationException.class, () -> service.update(JOHN, "John.Smith",
+                    new TraineeUpdate("Johnny", "Smith", null, null, true)));
             verifyNoInteractions(traineeDao);
         }
 
         @Test
-        void rejectsMissingNamesWithoutChangingAnything() {
-            assertThrows(IllegalArgumentException.class,
-                    () -> service.update(JOHN, new TraineeUpdate("John", null, null, null)));
-            assertThrows(IllegalArgumentException.class,
-                    () -> service.update(JOHN, new TraineeUpdate(" ", "Smith", null, null)));
+        void someoneElsesProfileIsForbidden() {
+            assertThrows(ForbiddenException.class, () -> service.update(MARIA, "John.Smith",
+                    new TraineeUpdate("Johnny", "Smith", null, null, true)));
             verifyNoInteractions(traineeDao);
         }
 
         @Test
-        void rejectsNullUpdate() {
-            assertThrows(NullPointerException.class, () -> service.update(JOHN, null));
+        void rejectsMissingRequiredFields() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.update(JOHN, "John.Smith", new TraineeUpdate("John", null, null, null, true)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.update(JOHN, "John.Smith", new TraineeUpdate(" ", "Smith", null, null, true)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.update(JOHN, "John.Smith", new TraineeUpdate("John", "Smith", null, null, null)));
+            assertThrows(NullPointerException.class, () -> service.update(JOHN, "John.Smith", null));
             verifyNoInteractions(traineeDao);
         }
 
@@ -271,21 +261,33 @@ class TraineeServiceImplTest {
         void traineeDeletedAfterAuthentication() {
             when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
 
-            assertThrows(NotFoundException.class,
-                    () -> service.update(JOHN, new TraineeUpdate("John", "Smith", null, null)));
+            assertThrows(NotFoundException.class, () -> service.update(JOHN, "John.Smith",
+                    new TraineeUpdate("John", "Smith", null, null, true)));
         }
     }
 
     @Nested
-    class ToggleActive {
+    class SetActive {
 
         @Test
-        void flipsTheFlagEachTime() {
+        void changesTheFlag() {
             Trainee john = givenJohn();
 
-            assertFalse(service.toggleActive(JOHN));
+            service.setActive(JOHN, "John.Smith", false);
             assertFalse(john.getUser().isActive());
-            assertTrue(service.toggleActive(JOHN));
+
+            service.setActive(JOHN, "John.Smith", true);
+            assertTrue(john.getUser().isActive());
+        }
+
+        @Test
+        void sameStateIsAConflict() {
+            Trainee john = givenJohn();
+
+            ConflictException e = assertThrows(ConflictException.class,
+                    () -> service.setActive(JOHN, "John.Smith", true));
+
+            assertEquals("Trainee John.Smith is already active", e.getMessage());
             assertTrue(john.getUser().isActive());
         }
 
@@ -293,7 +295,13 @@ class TraineeServiceImplTest {
         void wrongCredentialsChangeNothing() {
             givenWrongTraineeCredentials();
 
-            assertThrows(AuthenticationException.class, () -> service.toggleActive(JOHN));
+            assertThrows(AuthenticationException.class, () -> service.setActive(JOHN, "John.Smith", false));
+            verifyNoInteractions(traineeDao);
+        }
+
+        @Test
+        void someoneElsesProfileIsForbidden() {
+            assertThrows(ForbiddenException.class, () -> service.setActive(MARIA, "John.Smith", false));
             verifyNoInteractions(traineeDao);
         }
     }
@@ -305,7 +313,7 @@ class TraineeServiceImplTest {
         void deletesOwnProfile() {
             Trainee john = givenJohn();
 
-            service.delete(JOHN);
+            service.delete(JOHN, "John.Smith");
 
             verify(traineeDao).delete(john);
         }
@@ -314,7 +322,7 @@ class TraineeServiceImplTest {
         void wrongCredentialsDeleteNothing() {
             givenWrongTraineeCredentials();
 
-            assertThrows(AuthenticationException.class, () -> service.delete(JOHN));
+            assertThrows(AuthenticationException.class, () -> service.delete(JOHN, "John.Smith"));
             verify(traineeDao, never()).delete(any());
         }
 
@@ -323,15 +331,21 @@ class TraineeServiceImplTest {
             Credentials anna = new Credentials("Anna.Lee", "pw");
             doThrow(WRONG_PASSWORD).when(authenticationService).authenticateTrainee(anna);
 
-            assertThrows(AuthenticationException.class, () -> service.delete(anna));
-            verify(traineeDao, never()).delete(any());
+            assertThrows(AuthenticationException.class, () -> service.delete(anna, "Anna.Lee"));
+            verifyNoInteractions(traineeDao);
+        }
+
+        @Test
+        void someoneElsesProfileIsForbidden() {
+            assertThrows(ForbiddenException.class, () -> service.delete(MARIA, "John.Smith"));
+            verifyNoInteractions(traineeDao);
         }
 
         @Test
         void traineeDeletedAfterAuthentication() {
             when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
 
-            assertThrows(NotFoundException.class, () -> service.delete(JOHN));
+            assertThrows(NotFoundException.class, () -> service.delete(JOHN, "John.Smith"));
             verify(traineeDao, never()).delete(any());
         }
     }
@@ -346,7 +360,7 @@ class TraineeServiceImplTest {
             Trainer anna = trainer("Anna.Lee", "pw", YOGA);
             when(trainerDao.findByUsernames(Set.of("Anna.Lee"))).thenReturn(List.of(anna));
 
-            List<Trainer> result = service.updateTrainers(JOHN, List.of("Anna.Lee", "Anna.Lee"));
+            List<Trainer> result = service.updateTrainers(JOHN, "John.Smith", List.of("Anna.Lee", "Anna.Lee"));
 
             assertEquals(List.of(anna), result);
             assertEquals(Set.of(anna), john.getTrainers());
@@ -358,7 +372,7 @@ class TraineeServiceImplTest {
             john.getTrainers().add(trainer("Old.Trainer", "pw", FITNESS));
             when(trainerDao.findByUsernames(Set.of())).thenReturn(List.of());
 
-            assertTrue(service.updateTrainers(JOHN, List.of()).isEmpty());
+            assertTrue(service.updateTrainers(JOHN, "John.Smith", List.of()).isEmpty());
             assertTrue(john.getTrainers().isEmpty());
         }
 
@@ -370,7 +384,7 @@ class TraineeServiceImplTest {
             when(trainerDao.findByUsernames(anyCollection())).thenReturn(List.of(trainer("Anna.Lee", "pw", YOGA)));
 
             NotFoundException e = assertThrows(NotFoundException.class,
-                    () -> service.updateTrainers(JOHN, List.of("Anna.Lee", "Nobody")));
+                    () -> service.updateTrainers(JOHN, "John.Smith", List.of("Anna.Lee", "Nobody")));
 
             assertEquals("Trainers not found: [Nobody]", e.getMessage());
             assertEquals(Set.of(old), john.getTrainers());
@@ -380,13 +394,21 @@ class TraineeServiceImplTest {
         void wrongCredentialsChangeNothing() {
             givenWrongTraineeCredentials();
 
-            assertThrows(AuthenticationException.class, () -> service.updateTrainers(JOHN, List.of("Anna.Lee")));
+            assertThrows(AuthenticationException.class,
+                    () -> service.updateTrainers(JOHN, "John.Smith", List.of("Anna.Lee")));
+            verifyNoInteractions(traineeDao, trainerDao);
+        }
+
+        @Test
+        void someoneElsesListIsForbidden() {
+            assertThrows(ForbiddenException.class,
+                    () -> service.updateTrainers(MARIA, "John.Smith", List.of("Anna.Lee")));
             verifyNoInteractions(traineeDao, trainerDao);
         }
 
         @Test
         void rejectsNullList() {
-            assertThrows(NullPointerException.class, () -> service.updateTrainers(JOHN, null));
+            assertThrows(NullPointerException.class, () -> service.updateTrainers(JOHN, "John.Smith", null));
             verifyNoInteractions(traineeDao, trainerDao);
         }
     }
