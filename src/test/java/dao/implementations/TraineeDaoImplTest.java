@@ -106,4 +106,14 @@ class TraineeDaoImplTest extends DaoTestBase {
         assertEquals(1, count("trainer"));
         assertEquals(1, count("users")); // only the trainer's user is left
     }
+
+    @Test
+    void countActiveCountsOnlyActiveProfiles() {
+        persistTrainee("John", "Smith", "John.Smith");
+        persistTrainee("Maria", "Garcia", "Maria.Garcia").getUser().setActive(false);
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        flushAndClear();
+
+        assertEquals(1, traineeDao.countActive());
+    }
 }

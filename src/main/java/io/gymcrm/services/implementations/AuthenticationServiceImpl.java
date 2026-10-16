@@ -6,6 +6,7 @@ import io.gymcrm.dao.UserDao;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.services.AuthenticationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,12 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     private UserDao userDao;
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
+    private GymMetrics metrics;
+
+    @Autowired
+    public void setMetrics(GymMetrics metrics) {
+        this.metrics = metrics;
+    }
 
     @Autowired
     public void setUserDao(UserDao userDao) {
@@ -81,6 +88,18 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         log.debug("User {} authenticated", credentials.username());
     }
 
+    @Override
+    public void login(Credentials credentials) {
+        try {
+            authenticate(credentials);
+        } catch (AuthenticationException e) {
+            metrics.loginFailed();
+            throw e;
+        }
+        metrics.loginSucceeded();
+        log.info("User {} logged in", credentials.username());
+    }
+
     private static boolean isComplete(Credentials credentials) {
         return credentials != null && credentials.username() != null && credentials.password() != null;
     }
@@ -91,9 +110,10 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                 password.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static void reject(Credentials credentials, String role) {
+    private void reject(Credentials credentials, String role) {
         String username = Optional.ofNullable(credentials).map(Credentials::username).orElse(null);
         log.warn("Authentication failed for {} {}", role, username);
+        metrics.authenticationFailed(role);
         throw new AuthenticationException("Invalid username or password");
     }
 }

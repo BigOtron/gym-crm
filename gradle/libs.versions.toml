@@ -12,6 +12,7 @@ spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-
 spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 spring-boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
 postgresql = { module = "org.postgresql:postgresql" }
 h2 = { module = "com.h2database:h2" }
 lombok = { module = "org.projectlombok:lombok" }

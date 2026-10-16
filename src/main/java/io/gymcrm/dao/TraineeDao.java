@@ -8,4 +8,7 @@ public interface TraineeDao {
     Trainee save(Trainee trainee);
     void delete(Trainee trainee);
     Optional<Trainee> findByUsername(String username);
+
+    /** Number of trainees whose profile is active. */
+    long countActive();
 }

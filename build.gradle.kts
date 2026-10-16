@@ -27,6 +27,7 @@ dependencies {
     implementation(libs.spring.boot.starter.data.jpa)
     implementation(libs.spring.boot.starter.validation)
     implementation(libs.spring.boot.starter.actuator)
+    runtimeOnly(libs.micrometer.registry.prometheus)
     implementation(libs.swagger.annotations)
     runtimeOnly(libs.postgresql)
 

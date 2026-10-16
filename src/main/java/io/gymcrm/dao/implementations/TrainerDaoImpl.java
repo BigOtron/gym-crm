@@ -95,4 +95,11 @@ public class TrainerDaoImpl implements TrainerDao {
         log.debug("Active trainers per training type: {}", counts);
         return counts;
     }
+
+    @Override
+    public long countActive() {
+        return entityManager.createQuery(
+                        "select count(t) from Trainer t where t.user.active = true", Long.class)
+                .getSingleResult();
+    }
 }

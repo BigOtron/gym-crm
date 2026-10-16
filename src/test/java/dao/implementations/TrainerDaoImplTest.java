@@ -129,4 +129,15 @@ class TrainerDaoImplTest extends DaoTestBase {
         assertEquals(0L, counts.get("Fitness"), "inactive trainers don't count");
         assertEquals(0L, counts.get("Running"));
     }
+
+    @Test
+    void countActiveCountsOnlyActiveProfiles() {
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
+        persistTrainer("Old", "Coach", "Old.Coach", "Fitness").getUser().setActive(false);
+        persistTrainee("John", "Smith", "John.Smith");
+        flushAndClear();
+
+        assertEquals(2, trainerDao.countActive());
+    }
 }

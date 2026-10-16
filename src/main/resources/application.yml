@@ -23,7 +23,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, info, metrics
+        include: health, info, metrics, prometheus
   endpoint:
     health:
       show-components: always
@@ -32,6 +32,9 @@ management:
         order: DOWN, OUT_OF_SERVICE, WARNING, UP, UNKNOWN
         http-mapping:
           WARNING: 200
+  metrics:
+    tags:
+      application: ${spring.application.name}
   info:
     env:
       enabled: true

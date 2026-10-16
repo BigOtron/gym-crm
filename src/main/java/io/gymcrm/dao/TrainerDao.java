@@ -15,4 +15,7 @@ public interface TrainerDao {
 
     /** Number of active trainers for every training type, in id order; types without any have 0. */
     Map<String, Long> countActiveTrainersPerTrainingType();
+
+    /** Number of trainers whose profile is active. */
+    long countActive();
 }
