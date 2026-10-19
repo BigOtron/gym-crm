@@ -30,6 +30,8 @@ dependencies {
     runtimeOnly(libs.micrometer.registry.prometheus)
     implementation(libs.swagger.annotations)
     runtimeOnly(libs.postgresql)
+    // The in-memory database of the "standalone" profile (and of the tests).
+    runtimeOnly(libs.h2)
 
     compileOnly(libs.lombok)
     annotationProcessor(libs.lombok)
@@ -37,11 +39,19 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testRuntimeOnly(libs.junit.platform.launcher)
-    testRuntimeOnly(libs.h2)
 }
 
 springBoot {
     buildInfo()
+}
+
+// One executable jar with a fixed name (used by the Dockerfile) and no extra "-plain" jar.
+tasks.bootJar {
+    archiveFileName = "gym-crm.jar"
+}
+
+tasks.jar {
+    enabled = false
 }
 
 tasks.test {
