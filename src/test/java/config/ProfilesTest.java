@@ -71,7 +71,9 @@ class ProfilesTest {
     void eachEnvironmentHasItsOwnDatabase() {
         Set<String> urls = Stream.of("local", "dev", "stg", "prod")
                 .map(profile -> {
-                    String url = environment(profile, allVariables()).getProperty("spring.datasource.url");
+                    // local uses its default host here; the other environments get theirs from DB_HOST.
+                    Map<String, Object> variables = profile.equals("local") ? Map.of() : allVariables();
+                    String url = environment(profile, variables).getProperty("spring.datasource.url");
                     context.close();
                     return url;
                 })
@@ -164,5 +166,33 @@ class ProfilesTest {
         String value = environment(profile, allVariables()).getProperty("management.endpoint.health.show-details");
         context.close();
         return value;
+    }
+
+    @Test
+    void standaloneNeedsNoExternalDatabase() {
+        Environment env = environment("standalone", Map.of());
+
+        assertTrue(env.getProperty("spring.datasource.url").startsWith("jdbc:h2:mem:"));
+        assertEquals("sa", env.getProperty("spring.datasource.username"));
+    }
+
+    @Test
+    void localDatabaseHostCanBeOverriddenForDocker() {
+        Environment env = environment("local", Map.of("DB_HOST", "postgres"));
+
+        assertEquals("jdbc:postgresql://postgres:5432/gymcrm", env.getProperty("spring.datasource.url"));
+    }
+
+    @Test
+    void serversLogTheDate() {
+        assertEquals("HH:mm:ss.SSS", timeFormat("local"));
+        assertEquals("yyyy-MM-dd HH:mm:ss.SSS", timeFormat("stg"));
+        assertEquals("yyyy-MM-dd HH:mm:ss.SSS", timeFormat("prod"));
+    }
+
+    private String timeFormat(String profile) {
+        String format = environment(profile, allVariables()).getProperty("gymcrm.logging.time-format");
+        context.close();
+        return format;
     }
 }

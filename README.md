@@ -59,6 +59,64 @@ curl -i -u Anna.Lee:<password> localhost:8080/api/trainers/Anna.Lee
 
 The tests use an in-memory H2 database, so no PostgreSQL is needed.
 
+## Running in Docker
+
+The image is built by the multi-stage `Dockerfile`: the first stage compiles the jar with Gradle inside a
+JDK container, the second contains only a JRE and the jar and runs as a non-root user.
+
+### 1. Without external systems (integrations disabled)
+
+By default the container uses the `standalone` profile: an in-memory H2 database, so it needs nothing else.
+Data is lost when the container stops.
+
+```bash
+docker build -t gym-crm:1.0 .
+docker run -d --name gymcrm-standalone -p 8080:8080 gym-crm:1.0
+docker ps                                   # STATUS shows "(healthy)" once /actuator/health answers
+curl -i -H "Content-Type: application/json" \
+     -d '{"firstName":"Anna","lastName":"Lee","specializationId":6}' localhost:8080/api/trainers
+docker rm -f gymcrm-standalone
+```
+
+### 2. With PostgreSQL on a Docker network (integrations enabled)
+
+The application and the database run in separate containers on a user-defined network, where they find each
+other by container name. The database port isn't published, so only containers on the network can reach it.
+
+With Docker Compose (`docker-compose.yml`):
+
+```bash
+docker compose up -d --build                # network gymcrm-net, containers gymcrm-db and gymcrm-app
+docker compose ps
+docker compose down                         # add -v to also delete the database volume
+```
+
+The same with plain `docker` commands:
+
+```bash
+docker network create gymcrm-net
+docker run -d --name gymcrm-db --network gymcrm-net \
+     -e POSTGRES_DB=gymcrm -e POSTGRES_USER=gymcrm -e POSTGRES_PASSWORD=gymcrm \
+     -v gymcrm-data:/var/lib/postgresql/data postgres:17-alpine
+docker run -d --name gymcrm-app --network gymcrm-net -p 8080:8080 \
+     -e SPRING_PROFILES_ACTIVE=local -e DB_HOST=gymcrm-db -e DB_USERNAME=gymcrm -e DB_PASSWORD=gymcrm \
+     gym-crm:1.0
+docker network inspect gymcrm-net           # both containers and their IP addresses
+```
+
+The application logs which database it uses: `Environment [local]: database jdbc:postgresql://gymcrm-db:5432/gymcrm`.
+
+### 3. Logs and a shell inside the container
+
+```bash
+docker logs -f gymcrm-app                   # the console output
+docker exec -it gymcrm-app sh               # a shell inside the running container
+tail -f /app/logs/gym-crm.log               #   (inside) the same logs, written to a file
+docker exec -it gymcrm-db psql -U gymcrm -d gymcrm -c "select username, is_active from users"
+```
+
+Every log line contains the request's transaction id, which is also returned in the `X-Transaction-Id` header.
+
 ## API
 
 | #  | Operation                          | Method and URL                                     | Success |

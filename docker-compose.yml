@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: gymcrm-db
+    environment:
+      POSTGRES_DB: gymcrm
+      POSTGRES_USER: gymcrm
+      POSTGRES_PASSWORD: gymcrm
+    volumes:
+      - gymcrm-data:/var/lib/postgresql/data
+    networks:
+      - gymcrm-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gymcrm -d gymcrm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    image: gym-crm:1.0
+    container_name: gymcrm-app
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: postgres
+      DB_USERNAME: gymcrm
+      DB_PASSWORD: gymcrm
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    networks:
+      - gymcrm-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  gymcrm-net:
+    name: gymcrm-net
+    driver: bridge
+
+volumes:
+  gymcrm-data:
