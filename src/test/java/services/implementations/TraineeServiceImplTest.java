@@ -2,6 +2,7 @@ package services.implementations;
 
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
@@ -27,6 +28,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import support.TestData;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -34,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -82,6 +85,7 @@ class TraineeServiceImplTest {
     void setUp() {
         service = new TraineeServiceImpl();
         service.setMetrics(new GymMetrics(registry));
+        service.setPasswordEncoder(TestData.ENCODER);
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
         service.setUsernameGenerator(usernameGenerator);
@@ -108,12 +112,15 @@ class TraineeServiceImplTest {
             when(passwordGenerator.generate()).thenReturn("aaaaaaaaaa");
             when(traineeDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            Trainee created = service.create(
+            CreatedProfile<Trainee> result = service.create(
                     new TraineeRegistration(" John ", "Smith", LocalDate.of(1995, 4, 12), "Tashkent"));
+            Trainee created = result.profile();
 
             assertEquals("John", created.getUser().getFirstName());
             assertEquals("John.Smith", created.getUser().getUsername());
-            assertEquals("aaaaaaaaaa", created.getUser().getPassword());
+            assertEquals("aaaaaaaaaa", result.password(), "the generated password is returned once");
+            assertNotEquals("aaaaaaaaaa", created.getUser().getPassword(), "only a hash is stored");
+            assertTrue(TestData.ENCODER.matches("aaaaaaaaaa", created.getUser().getPassword()));
             assertTrue(created.getUser().isActive());
             assertEquals(LocalDate.of(1995, 4, 12), created.getDateOfBirth());
             assertEquals("Tashkent", created.getAddress());
@@ -184,7 +191,7 @@ class TraineeServiceImplTest {
 
             service.changePassword(JOHN, "newPassword");
 
-            assertEquals("newPassword", john.getUser().getPassword());
+            assertTrue(TestData.ENCODER.matches("newPassword", john.getUser().getPassword()), "stored as a hash");
             InOrder order = inOrder(authenticationService, traineeDao);
             order.verify(authenticationService).authenticateTrainee(JOHN);
             order.verify(traineeDao).findByUsername("John.Smith");

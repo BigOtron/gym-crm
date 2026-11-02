@@ -1,4 +1,5 @@
 import io.gymcrm.Application;
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
@@ -59,10 +60,10 @@ class ServiceAuthenticationIntegrationTest {
         for (String table : new String[]{"training", "trainee_trainer", "trainee", "trainer", "users"}) {
             jdbc.update("delete from " + table);
         }
-        Trainee trainee = traineeService.create(new TraineeRegistration("John", "Smith", null, "Tashkent"));
-        Trainer trainer = trainerService.create(new TrainerRegistration("Anna", "Lee", 6L));
-        john = new Credentials(trainee.getUser().getUsername(), trainee.getUser().getPassword());
-        anna = new Credentials(trainer.getUser().getUsername(), trainer.getUser().getPassword());
+        CreatedProfile<Trainee> trainee = traineeService.create(new TraineeRegistration("John", "Smith", null, "Tashkent"));
+        CreatedProfile<Trainer> trainer = trainerService.create(new TrainerRegistration("Anna", "Lee", 6L));
+        john = new Credentials(trainee.profile().getUser().getUsername(), trainee.password());
+        anna = new Credentials(trainer.profile().getUser().getUsername(), trainer.password());
         trainingService.create(john, new NewTraining(john.username(), anna.username(), "Yoga 1",
                 LocalDate.of(2026, 9, 1), 60));
     }
@@ -151,10 +152,10 @@ class ServiceAuthenticationIntegrationTest {
 
     @Test
     void someoneElsesProfileCantBeChanged() {
-        Trainee maria = traineeService.create(new TraineeRegistration("Maria", "Garcia", null, null));
-        Credentials mariaCredentials = new Credentials(maria.getUser().getUsername(), maria.getUser().getPassword());
-        Trainer david = trainerService.create(new TrainerRegistration("David", "Brown", 1L));
-        Credentials davidCredentials = new Credentials(david.getUser().getUsername(), david.getUser().getPassword());
+        CreatedProfile<Trainee> maria = traineeService.create(new TraineeRegistration("Maria", "Garcia", null, null));
+        Credentials mariaCredentials = new Credentials(maria.profile().getUser().getUsername(), maria.password());
+        CreatedProfile<Trainer> david = trainerService.create(new TrainerRegistration("David", "Brown", 1L));
+        Credentials davidCredentials = new Credentials(david.profile().getUser().getUsername(), david.password());
 
         assertForbiddenWithoutChanges(() -> traineeService.delete(mariaCredentials, john.username()));
         assertForbiddenWithoutChanges(() -> traineeService.update(mariaCredentials, john.username(),
@@ -168,8 +169,8 @@ class ServiceAuthenticationIntegrationTest {
 
     @Test
     void outsiderCantAddSomeoneElsesTraining() {
-        Trainer david = trainerService.create(new TrainerRegistration("David", "Brown", 1L));
-        Credentials davidCredentials = new Credentials(david.getUser().getUsername(), david.getUser().getPassword());
+        CreatedProfile<Trainer> david = trainerService.create(new TrainerRegistration("David", "Brown", 1L));
+        Credentials davidCredentials = new Credentials(david.profile().getUser().getUsername(), david.password());
 
         assertForbiddenWithoutChanges(() -> trainingService.create(davidCredentials, new NewTraining(john.username(),
                 anna.username(), "Yoga 2", LocalDate.of(2026, 9, 2), 60)));

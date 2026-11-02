@@ -3,6 +3,7 @@ package services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingTypeDao;
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TrainerRegistration;
 import io.gymcrm.dto.TrainerUpdate;
@@ -23,11 +24,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import support.TestData;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -75,6 +78,7 @@ class TrainerServiceImplTest {
     void setUp() {
         service = new TrainerServiceImpl();
         service.setMetrics(new GymMetrics(registry));
+        service.setPasswordEncoder(TestData.ENCODER);
         service.setTrainerDao(trainerDao);
         service.setTraineeDao(traineeDao);
         service.setTrainingTypeDao(trainingTypeDao);
@@ -103,10 +107,13 @@ class TrainerServiceImplTest {
             when(passwordGenerator.generate()).thenReturn("bbbbbbbbbb");
             when(trainerDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            Trainer created = service.create(new TrainerRegistration("Anna", "Lee", 6L));
+            CreatedProfile<Trainer> result = service.create(new TrainerRegistration("Anna", "Lee", 6L));
+            Trainer created = result.profile();
 
             assertEquals("Anna.Lee", created.getUser().getUsername());
-            assertEquals("bbbbbbbbbb", created.getUser().getPassword());
+            assertEquals("bbbbbbbbbb", result.password(), "the generated password is returned once");
+            assertNotEquals("bbbbbbbbbb", created.getUser().getPassword(), "only a hash is stored");
+            assertTrue(TestData.ENCODER.matches("bbbbbbbbbb", created.getUser().getPassword()));
             assertTrue(created.getUser().isActive());
             assertSame(YOGA, created.getSpecialization());
             verifyNoInteractions(authenticationService);
@@ -170,7 +177,7 @@ class TrainerServiceImplTest {
 
             service.changePassword(ANNA, "newPassword");
 
-            assertEquals("newPassword", anna.getUser().getPassword());
+            assertTrue(TestData.ENCODER.matches("newPassword", anna.getUser().getPassword()), "stored as a hash");
             verify(authenticationService).authenticateTrainer(ANNA);
         }
 

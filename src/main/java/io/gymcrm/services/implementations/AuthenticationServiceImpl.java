@@ -10,11 +10,10 @@ import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.services.AuthenticationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Optional;
 
 @Slf4j
@@ -26,6 +25,12 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
     private GymMetrics metrics;
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -104,10 +109,9 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         return credentials != null && credentials.username() != null && credentials.password() != null;
     }
 
-    private static boolean passwordMatches(User user, String password) {
-        return MessageDigest.isEqual(
-                user.getPassword().getBytes(StandardCharsets.UTF_8),
-                password.getBytes(StandardCharsets.UTF_8));
+    /** BCrypt reads the salt from the stored hash, hashes the given password with it and compares. */
+    private boolean passwordMatches(User user, String password) {
+        return passwordEncoder.matches(password, user.getPassword());
     }
 
     private void reject(Credentials credentials, String role) {

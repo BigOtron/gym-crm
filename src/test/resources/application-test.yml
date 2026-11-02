@@ -10,3 +10,8 @@ management:
   endpoint:
     health:
       show-details: always
+
+gymcrm:
+  security:
+    # BCrypt is slow on purpose; a low strength keeps the tests fast.
+    bcrypt-strength: 4

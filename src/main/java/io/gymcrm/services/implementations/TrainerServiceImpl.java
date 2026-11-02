@@ -3,6 +3,7 @@ package io.gymcrm.services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingTypeDao;
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TrainerRegistration;
 import io.gymcrm.dto.TrainerUpdate;
@@ -18,6 +19,7 @@ import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class TrainerServiceImpl implements TrainerService {
     private TraineeDao traineeDao;
     private UsernameGenerator usernameGenerator;
     private PasswordGenerator passwordGenerator;
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -72,20 +75,26 @@ public class TrainerServiceImpl implements TrainerService {
     }
 
     @Autowired
+    public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Autowired
     public void setPasswordGenerator(PasswordGenerator passwordGenerator) {
         this.passwordGenerator = passwordGenerator;
     }
 
     @Override
-    public Trainer create(TrainerRegistration registration) {
+    public CreatedProfile<Trainer> create(TrainerRegistration registration) {
         Objects.requireNonNull(registration, "registration must not be null");
         String firstName = requireText(registration.firstName(), "First name");
         String lastName = requireText(registration.lastName(), "Last name");
         TrainingType specialization = findType(requireValue(registration.specializationId(), "Specialization"));
         log.debug("Creating trainer {} {} ({})", firstName, lastName, specialization.getTrainingTypeName());
 
+        String password = passwordGenerator.generate();
         User user = new User(firstName, lastName,
-                usernameGenerator.generate(firstName, lastName), passwordGenerator.generate(), true);
+                usernameGenerator.generate(firstName, lastName), passwordEncoder.encode(password), true);
         Trainer trainer = new Trainer();
         trainer.setUser(user);
         trainer.setSpecialization(specialization);
@@ -94,7 +103,7 @@ public class TrainerServiceImpl implements TrainerService {
         log.info("Trainer created: {} (id {}), specialization {}",
                 user.getUsername(), created.getId(), specialization.getTrainingTypeName());
         metrics.userRegistered(GymMetrics.TRAINER);
-        return created;
+        return new CreatedProfile<>(created, password);
     }
 
     @Override
@@ -110,7 +119,7 @@ public class TrainerServiceImpl implements TrainerService {
         authenticationService.authenticateTrainer(auth);
         String username = auth.username();
         String password = requireText(newPassword, "New password");
-        find(username).getUser().setPassword(password);
+        find(username).getUser().setPassword(passwordEncoder.encode(password));
         log.info("Trainer {} changed password", username);
     }
 

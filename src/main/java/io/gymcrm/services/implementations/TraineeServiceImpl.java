@@ -2,6 +2,7 @@ package io.gymcrm.services.implementations;
 
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
@@ -17,6 +18,7 @@ import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +43,7 @@ public class TraineeServiceImpl implements TraineeService {
     private TrainerDao trainerDao;
     private UsernameGenerator usernameGenerator;
     private PasswordGenerator passwordGenerator;
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -68,19 +71,25 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Autowired
+    public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Autowired
     public void setPasswordGenerator(PasswordGenerator passwordGenerator) {
         this.passwordGenerator = passwordGenerator;
     }
 
     @Override
-    public Trainee create(TraineeRegistration registration) {
+    public CreatedProfile<Trainee> create(TraineeRegistration registration) {
         Objects.requireNonNull(registration, "registration must not be null");
         String firstName = requireText(registration.firstName(), "First name");
         String lastName = requireText(registration.lastName(), "Last name");
         log.debug("Creating trainee {} {}", firstName, lastName);
 
+        String password = passwordGenerator.generate();
         User user = new User(firstName, lastName,
-                usernameGenerator.generate(firstName, lastName), passwordGenerator.generate(), true);
+                usernameGenerator.generate(firstName, lastName), passwordEncoder.encode(password), true);
         Trainee trainee = new Trainee();
         trainee.setUser(user);
         trainee.setDateOfBirth(registration.dateOfBirth());
@@ -89,7 +98,7 @@ public class TraineeServiceImpl implements TraineeService {
         Trainee created = traineeDao.save(trainee);
         log.info("Trainee created: {} (id {})", user.getUsername(), created.getId());
         metrics.userRegistered(GymMetrics.TRAINEE);
-        return created;
+        return new CreatedProfile<>(created, password);
     }
 
     @Override
@@ -105,7 +114,7 @@ public class TraineeServiceImpl implements TraineeService {
         authenticationService.authenticateTrainee(auth);
         String username = auth.username();
         String password = requireText(newPassword, "New password");
-        find(username).getUser().setPassword(password);
+        find(username).getUser().setPassword(passwordEncoder.encode(password));
         log.info("Trainee {} changed password", username);
     }
 

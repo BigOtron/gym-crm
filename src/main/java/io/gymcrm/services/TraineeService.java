@@ -1,5 +1,6 @@
 package io.gymcrm.services;
 
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
@@ -15,7 +16,8 @@ import java.util.List;
  * for anyone else.
  */
 public interface TraineeService {
-    Trainee create(TraineeRegistration registration);
+    /** Returns the new trainee with the generated password, which is stored only as a hash. */
+    CreatedProfile<Trainee> create(TraineeRegistration registration);
 
     /** Any authenticated user can read a trainee's profile. */
     Trainee getByUsername(Credentials auth, String username);

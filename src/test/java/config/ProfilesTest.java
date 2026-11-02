@@ -9,6 +9,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.StandardEnvironment;
 
 import java.util.Map;
 import java.util.Set;
@@ -46,7 +47,12 @@ class ProfilesTest {
         // All tests run with the "test" profile (see build.gradle.kts). A command-line argument
         // overrides that, so exactly the requested profile is active (none means the default, "local").
         String activeProfiles = "--spring.profiles.active=" + (profile == null ? "" : profile);
+        // Without the machine's real environment variables (e.g. a DB_PASSWORD set in the developer's
+        // shell): only the variables given by each test count.
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
         context = new SpringApplicationBuilder(NoBeans.class)
+                .environment(environment)
                 .web(WebApplicationType.NONE)
                 .logStartupInfo(false)
                 .properties(variables)

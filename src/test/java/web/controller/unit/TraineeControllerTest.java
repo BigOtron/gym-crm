@@ -1,5 +1,6 @@
 package web.controller.unit;
 
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeTrainingCriteria;
 import io.gymcrm.dto.TraineeUpdate;
@@ -76,7 +77,7 @@ class TraineeControllerTest {
     @Test
     void register() throws Exception {
         when(facade.createTrainee(new TraineeRegistration("John", "Smith", LocalDate.of(1995, 4, 12), null)))
-                .thenReturn(trainee("John.Smith", "generated1"));
+                .thenReturn(new CreatedProfile<>(trainee("John.Smith", "$2a$hash"), "generated1"));
 
         mvc.perform(post("/api/trainees").contentType(MediaType.APPLICATION_JSON).content("""
                         {"firstName":"John","lastName":"Smith","dateOfBirth":"1995-04-12"}"""))

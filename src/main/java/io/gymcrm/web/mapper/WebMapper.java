@@ -67,8 +67,12 @@ public final class WebMapper {
         return new TrainerTrainingCriteria(query.from(), query.to(), query.traineeName());
     }
 
-    public static CredentialsResponse toCredentials(User user) {
-        return new CredentialsResponse(user.getUsername(), user.getPassword());
+    /**
+     * {@code password} is the generated plain password from {@link io.gymcrm.dto.CreatedProfile}:
+     * the user entity only holds its hash.
+     */
+    public static CredentialsResponse toCredentials(User user, String password) {
+        return new CredentialsResponse(user.getUsername(), password);
     }
 
     public static TrainingTypeResponse toResponse(TrainingType type) {

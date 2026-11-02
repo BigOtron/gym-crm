@@ -1,4 +1,5 @@
 import io.gymcrm.Application;
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
@@ -28,6 +29,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,12 +65,13 @@ class GymCrmIntegrationTest {
         david = credentials(facade.createTrainer(new TrainerRegistration("David", "Brown", HEAVY_LIFTING)));
     }
 
-    private static Credentials credentials(Trainee trainee) {
-        return new Credentials(trainee.getUser().getUsername(), trainee.getUser().getPassword());
-    }
-
-    private static Credentials credentials(Trainer trainer) {
-        return new Credentials(trainer.getUser().getUsername(), trainer.getUser().getPassword());
+    /** The generated password comes with the registration; the database only has its hash. */
+    private static Credentials credentials(CreatedProfile<?> created) {
+        Object profile = created.profile();
+        String username = profile instanceof Trainee trainee
+                ? trainee.getUser().getUsername()
+                : ((Trainer) profile).getUser().getUsername();
+        return new Credentials(username, created.password());
     }
 
     private Training addTraining(Credentials trainee, Credentials trainer, String name, LocalDate date) {
@@ -80,8 +83,8 @@ class GymCrmIntegrationTest {
         assertEquals("John.Smith", john.username());
         assertEquals(10, john.password().length());
 
-        Trainee namesake = facade.createTrainee(new TraineeRegistration("John", "Smith", null, null));
-        Trainer trainerNamesake = facade.createTrainer(new TrainerRegistration("John", "Smith", YOGA));
+        Trainee namesake = facade.createTrainee(new TraineeRegistration("John", "Smith", null, null)).profile();
+        Trainer trainerNamesake = facade.createTrainer(new TrainerRegistration("John", "Smith", YOGA)).profile();
 
         assertEquals("John.Smith1", namesake.getUser().getUsername());
         assertEquals("John.Smith2", trainerNamesake.getUser().getUsername());
@@ -284,5 +287,31 @@ class GymCrmIntegrationTest {
                 () -> facade.updateTraineeTrainers(john, john.username(), List.of("Nobody.Here")));
         // Removing a trainer from the list doesn't remove past trainings.
         assertEquals(1, facade.getTraineeTrainings(john, john.username(), TraineeTrainingCriteria.none()).size());
+    }
+
+    @Test
+    void passwordsAreStoredAsSaltedHashes() {
+        String stored = jdbc().queryForObject("select password from users where username = ?", String.class,
+                john.username());
+
+        assertTrue(stored.startsWith("$2a$"), "a BCrypt hash: " + stored);
+        assertFalse(stored.contains(john.password()));
+        assertTrue(facade.traineeCredentialsMatch(john), "the plain password still logs in");
+    }
+
+    @Test
+    void equalPasswordsGetDifferentHashesBecauseOfTheSalt() {
+        facade.changePassword(john, "samePassword1");
+        facade.changePassword(anna, "samePassword1");
+
+        List<String> hashes = jdbc().queryForList("select password from users where username in (?, ?)",
+                String.class, john.username(), anna.username());
+
+        assertEquals(2, hashes.size());
+        assertNotEquals(hashes.get(0), hashes.get(1));
+    }
+
+    private JdbcTemplate jdbc() {
+        return new JdbcTemplate(dataSource);
     }
 }

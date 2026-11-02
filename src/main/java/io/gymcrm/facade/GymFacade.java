@@ -1,5 +1,6 @@
 package io.gymcrm.facade;
 
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
@@ -40,11 +41,11 @@ public class GymFacade {
 
     // Registration (no authentication)
 
-    public Trainee createTrainee(TraineeRegistration registration) {
+    public CreatedProfile<Trainee> createTrainee(TraineeRegistration registration) {
         return traineeService.create(registration);
     }
 
-    public Trainer createTrainer(TrainerRegistration registration) {
+    public CreatedProfile<Trainer> createTrainer(TrainerRegistration registration) {
         return trainerService.create(registration);
     }
 

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import support.TestData;
 
 import java.util.Optional;
 
@@ -47,6 +48,7 @@ class AuthenticationServiceImplTest {
     void setUp() {
         service = new AuthenticationServiceImpl();
         service.setMetrics(new GymMetrics(registry));
+        service.setPasswordEncoder(TestData.ENCODER);
         service.setUserDao(userDao);
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
@@ -54,7 +56,7 @@ class AuthenticationServiceImplTest {
 
     @Test
     void traineeCredentialsMatchWithRightPassword() {
-        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "secret")));
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(hashed(trainee("John.Smith", "secret"))));
 
         assertTrue(service.traineeCredentialsMatch(new Credentials("John.Smith", "secret")));
         assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "wrong")));
@@ -77,14 +79,14 @@ class AuthenticationServiceImplTest {
 
     @Test
     void trainerCredentialsMatch() {
-        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA)));
+        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(hashed(trainer("Anna.Lee", "pw", YOGA))));
 
         assertTrue(service.trainerCredentialsMatch(new Credentials("Anna.Lee", "pw")));
     }
 
     @Test
     void authenticateTraineeThrowsOnMismatch() {
-        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "secret")));
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(hashed(trainee("John.Smith", "secret"))));
 
         assertDoesNotThrow(() -> service.authenticateTrainee(new Credentials("John.Smith", "secret")));
         assertThrows(AuthenticationException.class,
@@ -102,7 +104,7 @@ class AuthenticationServiceImplTest {
     @Test
     void authenticateAnyUser() {
         when(userDao.findByUsername("Anna.Lee"))
-                .thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+                .thenReturn(Optional.of(hashed(trainer("Anna.Lee", "pw", YOGA)).getUser()));
         when(userDao.findByUsername("Nobody")).thenReturn(Optional.empty());
 
         assertDoesNotThrow(() -> service.authenticate(new Credentials("Anna.Lee", "pw")));
@@ -113,7 +115,7 @@ class AuthenticationServiceImplTest {
 
     @Test
     void passwordComparisonIsExact() {
-        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "Secret")));
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(hashed(trainee("John.Smith", "Secret"))));
 
         assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "secret")));
         assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "Secret ")));
@@ -131,7 +133,7 @@ class AuthenticationServiceImplTest {
 
     @Test
     void authenticateTrainerRejectsWrongPassword() {
-        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA)));
+        when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(hashed(trainer("Anna.Lee", "pw", YOGA))));
 
         assertThrows(AuthenticationException.class,
                 () -> service.authenticateTrainer(new Credentials("Anna.Lee", "wrong")));
@@ -148,7 +150,7 @@ class AuthenticationServiceImplTest {
     @Test
     void failureMessageDoesNotRevealWhetherTheUserExists() {
         when(userDao.findByUsername("Nobody")).thenReturn(Optional.empty());
-        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(hashed(trainer("Anna.Lee", "pw", YOGA)).getUser()));
 
         String unknownUser = assertThrows(AuthenticationException.class,
                 () -> service.authenticate(new Credentials("Nobody", "pw"))).getMessage();
@@ -164,7 +166,7 @@ class AuthenticationServiceImplTest {
 
     @Test
     void successfulLoginIsCounted() {
-        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(hashed(trainer("Anna.Lee", "pw", YOGA)).getUser()));
 
         service.login(new Credentials("Anna.Lee", "pw"));
 
@@ -174,7 +176,7 @@ class AuthenticationServiceImplTest {
 
     @Test
     void failedLoginIsCountedAndStillRejected() {
-        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(hashed(trainer("Anna.Lee", "pw", YOGA)).getUser()));
 
         assertThrows(AuthenticationException.class, () -> service.login(new Credentials("Anna.Lee", "wrong")));
 
@@ -200,5 +202,24 @@ class AuthenticationServiceImplTest {
         assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "x")));
 
         assertTrue(registry.find(GymMetrics.AUTHENTICATION_FAILURES).counters().isEmpty());
+    }
+
+    /** Stores the password the way the application does: as a BCrypt hash. */
+    private static io.gymcrm.entities.Trainee hashed(io.gymcrm.entities.Trainee trainee) {
+        trainee.getUser().setPassword(TestData.ENCODER.encode(trainee.getUser().getPassword()));
+        return trainee;
+    }
+
+    private static io.gymcrm.entities.Trainer hashed(io.gymcrm.entities.Trainer trainer) {
+        trainer.getUser().setPassword(TestData.ENCODER.encode(trainer.getUser().getPassword()));
+        return trainer;
+    }
+
+    @Test
+    void plainTextInTheDatabaseNeverMatches() {
+        // e.g. a row left over from before hashing: the stored text equals the password, but isn't a hash
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.of(trainee("John.Smith", "secret")));
+
+        assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "secret")));
     }
 }

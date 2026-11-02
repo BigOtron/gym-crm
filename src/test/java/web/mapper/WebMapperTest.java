@@ -45,10 +45,10 @@ class WebMapperTest {
     }
 
     @Test
-    void credentials() {
-        User user = new User("John", "Smith", "John.Smith", "secret", true);
+    void credentialsShowTheGeneratedPasswordNotTheStoredHash() {
+        User user = new User("John", "Smith", "John.Smith", "$2a$10$storedHash", true);
 
-        assertEquals(new CredentialsResponse("John.Smith", "secret"), WebMapper.toCredentials(user));
+        assertEquals(new CredentialsResponse("John.Smith", "generated1"), WebMapper.toCredentials(user, "generated1"));
     }
 
     @Test

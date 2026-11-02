@@ -1,5 +1,6 @@
 package facade;
 
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
@@ -76,11 +77,13 @@ class GymFacadeTest {
         var trainerRegistration = new TrainerRegistration("Anna", "Lee", 6L);
         Trainee trainee = new Trainee();
         Trainer trainer = new Trainer();
-        when(traineeService.create(traineeRegistration)).thenReturn(trainee);
-        when(trainerService.create(trainerRegistration)).thenReturn(trainer);
+        var createdTrainee = new CreatedProfile<>(trainee, "pw1");
+        var createdTrainer = new CreatedProfile<>(trainer, "pw2");
+        when(traineeService.create(traineeRegistration)).thenReturn(createdTrainee);
+        when(trainerService.create(trainerRegistration)).thenReturn(createdTrainer);
 
-        assertSame(trainee, facade.createTrainee(traineeRegistration));
-        assertSame(trainer, facade.createTrainer(trainerRegistration));
+        assertSame(createdTrainee, facade.createTrainee(traineeRegistration));
+        assertSame(createdTrainer, facade.createTrainer(trainerRegistration));
         verifyNoInteractions(authenticationService);
     }
 

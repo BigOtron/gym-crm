@@ -1,6 +1,8 @@
 package io.gymcrm.web.controller;
 
+import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.Credentials;
+import io.gymcrm.entities.Trainer;
 import io.gymcrm.facade.GymFacade;
 import io.gymcrm.web.auth.BasicAuth;
 import io.gymcrm.web.dto.ActiveStatusRequest;
@@ -53,7 +55,8 @@ public class TrainerController {
     @ApiResponse(responseCode = "400", description = "A required field is missing or a field is invalid")
     @ApiResponse(responseCode = "404", description = "No training type with this specializationId")
     public CredentialsResponse register(@Valid @RequestBody TrainerRegistrationRequest request) {
-        return WebMapper.toCredentials(facade.createTrainer(WebMapper.toRegistration(request)).getUser());
+        CreatedProfile<Trainer> created = facade.createTrainer(WebMapper.toRegistration(request));
+        return WebMapper.toCredentials(created.profile().getUser(), created.password());
     }
 
     @GetMapping("/{username}")
