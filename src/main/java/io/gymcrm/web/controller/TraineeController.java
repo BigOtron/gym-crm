@@ -1,10 +1,8 @@
 package io.gymcrm.web.controller;
 
 import io.gymcrm.dto.CreatedProfile;
-import io.gymcrm.dto.Credentials;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.facade.GymFacade;
-import io.gymcrm.web.auth.BasicAuth;
 import io.gymcrm.web.dto.ActiveStatusRequest;
 import io.gymcrm.web.dto.CredentialsResponse;
 import io.gymcrm.web.dto.TraineeProfileResponse;
@@ -53,22 +51,21 @@ public class TraineeController {
             description = "Generates the username (firstName.lastName, plus a number if taken) and a random "
                     + "10-character password. This response is the only time the password is shown.")
     @SecurityRequirements
-    @ApiResponse(responseCode = "201", description = "Trainee registered; returns the generated credentials")
+    @ApiResponse(responseCode = "201", description = "Trainee registered; returns the generated credentials and a token")
     @ApiResponse(responseCode = "400", description = "A required field is missing or a field is invalid")
     public CredentialsResponse register(@Valid @RequestBody TraineeRegistrationRequest request) {
         CreatedProfile<Trainee> created = facade.createTrainee(WebMapper.toRegistration(request));
-        return WebMapper.toCredentials(created.profile().getUser(), created.password());
+        return WebMapper.toCredentials(created.profile().getUser(), created.password(), created.token());
     }
 
     @GetMapping("/{username}")
     @Operation(summary = "Get a trainee's profile", description = "Any authenticated user can read it.")
     @ApiResponse(responseCode = "200", description = "The profile, with the trainee's trainers")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
-    public TraineeProfileResponse getProfile(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                             @Parameter(description = "Trainee's username", example = "John.Smith")
+    public TraineeProfileResponse getProfile(@Parameter(description = "Trainee's username", example = "John.Smith")
                                              @PathVariable String username) {
-        return WebMapper.toProfile(facade.getTraineeByUsername(auth, username));
+        return WebMapper.toProfile(facade.getTraineeByUsername(username));
     }
 
     @PutMapping("/{username}")
@@ -76,27 +73,25 @@ public class TraineeController {
             description = "Only the trainee can update their own profile. The username can't be changed.")
     @ApiResponse(responseCode = "200", description = "The updated profile")
     @ApiResponse(responseCode = "400", description = "A required field is missing or a field is invalid")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials, or not a trainee")
-    @ApiResponse(responseCode = "403", description = "Someone else's profile")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
+    @ApiResponse(responseCode = "403", description = "Not a trainee, or someone else's profile")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
-    public TraineeProfileResponse update(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                         @Parameter(description = "Trainee's username", example = "John.Smith")
+    public TraineeProfileResponse update(@Parameter(description = "Trainee's username", example = "John.Smith")
                                          @PathVariable String username,
                                          @Valid @RequestBody TraineeUpdateRequest request) {
-        return WebMapper.toProfile(facade.updateTrainee(auth, username, WebMapper.toUpdate(request)));
+        return WebMapper.toProfile(facade.updateTrainee(username, WebMapper.toUpdate(request)));
     }
 
     @DeleteMapping("/{username}")
     @Operation(summary = "Delete a trainee's profile",
             description = "Only the trainee can delete their own profile. Their trainings are deleted too.")
     @ApiResponse(responseCode = "200", description = "Profile and trainings deleted")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials, or not a trainee")
-    @ApiResponse(responseCode = "403", description = "Someone else's profile")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
+    @ApiResponse(responseCode = "403", description = "Not a trainee, or someone else's profile")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
-    public ResponseEntity<Void> delete(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                       @Parameter(description = "Trainee's username", example = "John.Smith")
+    public ResponseEntity<Void> delete(@Parameter(description = "Trainee's username", example = "John.Smith")
                                        @PathVariable String username) {
-        facade.deleteTrainee(auth, username);
+        facade.deleteTrainee(username);
         return ResponseEntity.ok().build();
     }
 
@@ -104,13 +99,12 @@ public class TraineeController {
     @Operation(summary = "List trainers the trainee could add",
             description = "Active trainers that are not in the trainee's trainers list, sorted by username.")
     @ApiResponse(responseCode = "200", description = "The trainers")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
-    public List<TrainerSummary> getAvailableTrainers(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                                     @Parameter(description = "Trainee's username",
+    public List<TrainerSummary> getAvailableTrainers(@Parameter(description = "Trainee's username",
                                                              example = "John.Smith")
                                                      @PathVariable String username) {
-        return WebMapper.toTrainerSummaries(facade.getTrainersNotAssignedToTrainee(auth, username));
+        return WebMapper.toTrainerSummaries(facade.getTrainersNotAssignedToTrainee(username));
     }
 
     @PutMapping("/{username}/trainers")
@@ -119,14 +113,13 @@ public class TraineeController {
                     + "all trainers. Past trainings are kept. Only the trainee can change their own list.")
     @ApiResponse(responseCode = "200", description = "The new trainers list")
     @ApiResponse(responseCode = "400", description = "The list is missing or contains a blank username")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials, or not a trainee")
-    @ApiResponse(responseCode = "403", description = "Someone else's list")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
+    @ApiResponse(responseCode = "403", description = "Not a trainee, or someone else's list")
     @ApiResponse(responseCode = "404", description = "The trainee or one of the trainers doesn't exist")
-    public List<TrainerSummary> updateTrainers(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                               @Parameter(description = "Trainee's username", example = "John.Smith")
+    public List<TrainerSummary> updateTrainers(@Parameter(description = "Trainee's username", example = "John.Smith")
                                                @PathVariable String username,
                                                @Valid @RequestBody UpdateTrainersRequest request) {
-        return WebMapper.toTrainerSummaries(facade.updateTraineeTrainers(auth, username, request.trainerUsernames()));
+        return WebMapper.toTrainerSummaries(facade.updateTraineeTrainers(username, request.trainerUsernames()));
     }
 
     @GetMapping("/{username}/trainings")
@@ -134,14 +127,13 @@ public class TraineeController {
             description = "Sorted by date. All filters are optional and can be combined.")
     @ApiResponse(responseCode = "200", description = "The matching trainings")
     @ApiResponse(responseCode = "400", description = "Invalid filter, e.g. 'from' after 'to' or a bad date")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
-    public List<TraineeTrainingResponse> getTrainings(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                                      @Parameter(description = "Trainee's username",
+    public List<TraineeTrainingResponse> getTrainings(@Parameter(description = "Trainee's username",
                                                               example = "John.Smith")
                                                       @PathVariable String username,
                                                       @Valid TraineeTrainingsQuery query) {
-        return WebMapper.toTraineeTrainings(facade.getTraineeTrainings(auth, username, WebMapper.toCriteria(query)));
+        return WebMapper.toTraineeTrainings(facade.getTraineeTrainings(username, WebMapper.toCriteria(query)));
     }
 
     @PatchMapping("/{username}/status")
@@ -150,15 +142,14 @@ public class TraineeController {
                     + "Only the trainee can change their own status.")
     @ApiResponse(responseCode = "200", description = "Status changed")
     @ApiResponse(responseCode = "400", description = "isActive is missing")
-    @ApiResponse(responseCode = "401", description = "Missing or wrong credentials, or not a trainee")
-    @ApiResponse(responseCode = "403", description = "Someone else's profile")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
+    @ApiResponse(responseCode = "403", description = "Not a trainee, or someone else's profile")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
     @ApiResponse(responseCode = "409", description = "Already in the requested state")
-    public ResponseEntity<Void> setActive(@Parameter(hidden = true) @BasicAuth Credentials auth,
-                                          @Parameter(description = "Trainee's username", example = "John.Smith")
+    public ResponseEntity<Void> setActive(@Parameter(description = "Trainee's username", example = "John.Smith")
                                           @PathVariable String username,
                                           @Valid @RequestBody ActiveStatusRequest request) {
-        facade.setTraineeActive(auth, username, request.isActive());
+        facade.setTraineeActive(username, request.isActive());
         return ResponseEntity.ok().build();
     }
 }

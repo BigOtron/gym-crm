@@ -1,23 +1,29 @@
 package support;
 
 import io.gymcrm.Application;
+import io.gymcrm.security.LoginAttemptService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import javax.sql.DataSource;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Runs the whole application, security filters included, against H2. Each test starts with John (trainee),
+ * Anna (trainer, Yoga) and David (trainer, Heavy lifting), each logged in with a real token.
+ */
 @SpringBootTest(classes = Application.class)
 @AutoConfigureMockMvc
 public abstract class WebTestBase {
@@ -26,14 +32,22 @@ public abstract class WebTestBase {
     private DataSource dataSource;
 
     @Autowired
+    private LoginAttemptService loginAttempts;
+
+    @Autowired
     protected MockMvc mvc;
 
+    private final Map<String, String> passwords = new HashMap<>();
+
+    /** "Bearer ..." Authorization header values. */
     protected String john;
     protected String anna;
     protected String david;
 
     @BeforeEach
     void setUpUsers() throws Exception {
+        // The application context is shared between test classes, and the usernames repeat.
+        loginAttempts.clear();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         for (String table : new String[]{"training", "trainee_trainer", "trainee", "trainer", "users"}) {
             jdbc.update("delete from " + table);
@@ -47,25 +61,33 @@ public abstract class WebTestBase {
                 {"firstName":"David","lastName":"Brown","specializationId":3}""");
     }
 
+    /** Registers a user and returns their Authorization header, using the token from the response. */
     protected String register(String url, String json) throws Exception {
         MvcResult result = mvc.perform(post(url).contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isCreated())
                 .andReturn();
         String body = result.getResponse().getContentAsString();
-        String username = body.replaceAll(".*\"username\":\"([^\"]+)\".*", "$1");
         String password = body.replaceAll(".*\"password\":\"([^\"]+)\".*", "$1");
-        return basic(username, password);
+        String header = "Bearer " + body.replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
+        passwords.put(header, password);
+        return header;
     }
 
-    protected static String basic(String username, String password) {
-        return "Basic " + Base64.getEncoder()
-                .encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
+    /** The generated password of a user registered in this test, given their Authorization header. */
+    protected String passwordOf(String authorizationHeader) {
+        return passwords.get(authorizationHeader);
     }
 
-    protected static String passwordOf(String basicHeader) {
-        String decoded = new String(Base64.getDecoder().decode(basicHeader.substring("Basic ".length())),
-                StandardCharsets.UTF_8);
-        return decoded.substring(decoded.indexOf(':') + 1);
+    protected ResultActions login(String username, String password) throws Exception {
+        return mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
+                {"username":"%s","password":"%s"}""".formatted(username, password)));
+    }
+
+    /** Logs in and returns the Authorization header with the new token. */
+    protected String loginHeader(String username, String password) throws Exception {
+        String body = login(username, password).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return "Bearer " + body.replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
     }
 
     protected static MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder request, String auth,

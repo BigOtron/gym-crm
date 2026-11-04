@@ -61,7 +61,8 @@ class ProfilesTest {
     }
 
     private static Map<String, Object> allVariables() {
-        return Map.of("DB_HOST", "db.example", "DB_USERNAME", "user", "DB_PASSWORD", "secret");
+        return Map.of("DB_HOST", "db.example", "DB_USERNAME", "user", "DB_PASSWORD", "secret",
+                "JWT_SECRET", "a-secret-from-the-environment");
     }
 
     @Test
@@ -200,5 +201,37 @@ class ProfilesTest {
         String format = environment(profile, allVariables()).getProperty("gymcrm.logging.time-format");
         context.close();
         return format;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dev", "stg", "prod"})
+    void serversRequireTheJwtSecretFromTheEnvironment(String profile) {
+        Environment env = environment(profile, Map.of("DB_HOST", "db.example", "DB_USERNAME", "user", "DB_PASSWORD", "x"));
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> env.getProperty("gymcrm.security.jwt.secret"));
+        assertTrue(e.getMessage().contains("JWT_SECRET"), e.getMessage());
+    }
+
+    @Test
+    void corsAllowsTheLocalFrontendOnlyOnDeveloperEnvironments() {
+        assertEquals("http://localhost:3000", corsOrigins("local"));
+        assertEquals("http://localhost:3000", corsOrigins("dev"));
+        assertEquals("", corsOrigins("stg"));
+        assertEquals("", corsOrigins("prod"));
+    }
+
+    private String corsOrigins(String profile) {
+        String origins = environment(profile, allVariables()).getProperty("gymcrm.security.cors.allowed-origins");
+        context.close();
+        return origins;
+    }
+
+    @Test
+    void bruteForceSettingsMatchTheTask() {
+        Environment env = environment("local", Map.of());
+
+        assertEquals("3", env.getProperty("gymcrm.security.login.max-failures"));
+        assertEquals("5m", env.getProperty("gymcrm.security.login.block-duration"));
     }
 }

@@ -1,6 +1,5 @@
 package web.controller;
 
-import io.gymcrm.web.auth.BasicAuth;
 import io.gymcrm.web.controller.AuthController;
 import io.gymcrm.web.controller.TraineeController;
 import io.gymcrm.web.controller.TrainerController;
@@ -37,6 +36,9 @@ class ApiDocumentationTest {
 
     private static final List<Class<?>> CONTROLLERS = List.of(AuthController.class, TraineeController.class,
             TrainerController.class, TrainingController.class, TrainingTypeController.class);
+
+    private static final Set<String> PUBLIC_ENDPOINTS =
+            Set.of("TraineeController.register", "TrainerController.register", "AuthController.login");
 
     private static List<Method> endpoints() {
         return CONTROLLERS.stream()
@@ -85,21 +87,14 @@ class ApiDocumentationTest {
         String success = status != null ? String.valueOf(status.value().value()) : String.valueOf(HttpStatus.OK.value());
         assertTrue(codes.contains(success), "success code " + success + " not documented: " + codes);
 
-        // Authenticated endpoints document 401 and hide the credentials parameter;
-        // public ones say so with an empty @SecurityRequirements.
-        boolean authenticated = hasParameter(method, BasicAuth.class);
-        if (authenticated) {
-            assertTrue(codes.contains("401"), "401 not documented");
-            Arrays.stream(method.getParameters()).filter(p -> p.isAnnotationPresent(BasicAuth.class))
-                    .forEach(p -> assertTrue(p.getAnnotation(Parameter.class) != null
-                            && p.getAnnotation(Parameter.class).hidden(), "credentials parameter must be hidden"));
-        }
+
+        // Exactly the public endpoints say so with an empty @SecurityRequirements; all others need a token.
+        boolean isPublic = PUBLIC_ENDPOINTS.contains(method.getDeclaringClass().getSimpleName() + "." + method.getName());
         SecurityRequirements publicMarker = method.getAnnotation(SecurityRequirements.class);
         boolean markedPublic = publicMarker != null && publicMarker.value().length == 0;
-        boolean usesOldPassword = method.getName().equals("changePassword");
-        assertEquals(!authenticated, markedPublic, "public endpoints, and only those, need an empty @SecurityRequirements");
-        if (!authenticated && !usesOldPassword) {
-            assertFalse(codes.contains("401"), "a public endpoint can't return 401");
+        assertEquals(isPublic, markedPublic, "public endpoints, and only those, need an empty @SecurityRequirements");
+        if (!isPublic) {
+            assertTrue(codes.contains("401"), "401 not documented");
         }
 
         // Validated input can fail with 400; every path variable is described.

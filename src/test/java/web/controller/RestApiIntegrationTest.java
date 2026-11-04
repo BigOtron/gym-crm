@@ -27,7 +27,8 @@ class RestApiIntegrationTest extends WebTestBase {
                                 {"firstName":"John","lastName":"Smith"}"""))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.username").value("John.Smith1"))
-                .andExpect(jsonPath("$.password").value(matchesPattern("[A-Za-z0-9]{10}")));
+                .andExpect(jsonPath("$.password").value(matchesPattern("[A-Za-z0-9]{10}")))
+                .andExpect(jsonPath("$.token").isNotEmpty());
     }
 
     @Test
@@ -44,20 +45,29 @@ class RestApiIntegrationTest extends WebTestBase {
 
     @Test
     void login() throws Exception {
-        mvc.perform(get("/api/auth/login").header("Authorization", john)).andExpect(status().isOk());
-        mvc.perform(get("/api/auth/login").header("Authorization", anna)).andExpect(status().isOk());
+        String password = passwordOf(john);
+
+        login("John.Smith", password)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.expiresIn").value(3600))
+                .andExpect(jsonPath("$.token").isNotEmpty());
+
+        // The new token works.
+        mvc.perform(get("/api/trainees/John.Smith").header("Authorization", loginHeader("John.Smith", password)))
+                .andExpect(status().isOk());
     }
 
     @Test
     void changePassword() throws Exception {
         String oldPassword = passwordOf(anna);
 
-        mvc.perform(put("/api/auth/password").contentType(MediaType.APPLICATION_JSON).content("""
+        mvc.perform(json(put("/api/auth/password"), anna, """
                         {"username":"Anna.Lee","oldPassword":"%s","newPassword":"brandNew1"}""".formatted(oldPassword)))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/api/auth/login").header("Authorization", basic("Anna.Lee", "brandNew1")))
-                .andExpect(status().isOk());
+        login("Anna.Lee", "brandNew1").andExpect(status().isOk());
+        login("Anna.Lee", oldPassword).andExpect(status().isUnauthorized());
     }
 
     // 5, 6, 7. Trainee profile

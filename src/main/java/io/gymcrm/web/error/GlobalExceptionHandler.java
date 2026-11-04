@@ -2,14 +2,19 @@ package io.gymcrm.web.error;
 
 import io.gymcrm.exceptions.AuthenticationException;
 import io.gymcrm.exceptions.ConflictException;
-import io.gymcrm.exceptions.ForbiddenException;
+import io.gymcrm.exceptions.LoginBlockedException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.metrics.GymMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,18 +29,45 @@ import java.util.TreeMap;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    static final String REALM = "Basic realm=\"gym-crm\"";
+    private final GymMetrics metrics;
+
+    public GlobalExceptionHandler(GymMetrics metrics) {
+        this.metrics = metrics;
+    }
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .header(HttpHeaders.WWW_AUTHENTICATE, REALM)
-                .body(problemDetail(HttpStatus.UNAUTHORIZED, e.getMessage()));
+        return unauthorized(e.getMessage());
     }
 
-    @ExceptionHandler(ForbiddenException.class)
-    public ResponseEntity<ProblemDetail> handleForbidden(ForbiddenException e) {
-        return problem(HttpStatus.FORBIDDEN, e.getMessage());
+    /** From Spring Security: no token, or a token that isn't valid (also see SecurityErrorHandler). */
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<ProblemDetail> handleSecurityAuthentication(
+            org.springframework.security.core.AuthenticationException e) {
+        metrics.authenticationFailed("token");
+        if (e instanceof OAuth2AuthenticationException) {
+            return unauthorized("Invalid or expired token");
+        }
+        if (e instanceof InsufficientAuthenticationException
+                || e instanceof AuthenticationCredentialsNotFoundException) {
+            return unauthorized("Authentication required");
+        }
+        return unauthorized(e.getMessage());
+    }
+
+    /** From @PreAuthorize: logged in, but not allowed to do this. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException e) {
+        return problem(HttpStatus.FORBIDDEN, "You are not allowed to do this");
+    }
+
+    @ExceptionHandler(LoginBlockedException.class)
+    public ResponseEntity<ProblemDetail> handleLoginBlocked(LoginBlockedException e) {
+        // Rounded up, so a client that waits exactly this long isn't refused again.
+        long seconds = e.getRetryAfter().plusMillis(999).toSeconds();
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
+                .body(problemDetail(HttpStatus.TOO_MANY_REQUESTS, e.getMessage()));
     }
 
     @ExceptionHandler(NotFoundException.class)
@@ -75,6 +107,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         body.setProperty("errors", errors);
         log.warn("Validation failed: {}", errors);
         return handleExceptionInternal(e, body, headers, status, request);
+    }
+
+    private static ResponseEntity<ProblemDetail> unauthorized(String detail) {
+        // RFC 9110: a 401 must say which authentication scheme the client should use.
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .body(problemDetail(HttpStatus.UNAUTHORIZED, detail));
     }
 
     private static ResponseEntity<ProblemDetail> problem(HttpStatus status, String detail) {

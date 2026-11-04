@@ -80,7 +80,7 @@ class RestCallLoggingFilterTest {
     @Test
     void neverLogsTheAuthorizationHeader() throws Exception {
         MockHttpServletRequest request = post("/api/x", "{}");
-        request.addHeader("Authorization", "Basic Sm9objpzZWNyZXQ=");
+        request.addHeader("Authorization", "Bearer Sm9objpzZWNyZXQ=");
 
         List<ILoggingEvent> events = run(request, new MockHttpServletResponse(), 200, "");
 
@@ -109,5 +109,16 @@ class RestCallLoggingFilterTest {
         List<ILoggingEvent> events = run(request, new MockHttpServletResponse(), 200, "");
 
         assertTrue(events.get(1).getFormattedMessage().endsWith("request body: <empty>, response body: <empty>"));
+    }
+
+    @Test
+    void masksTokens() throws Exception {
+        List<ILoggingEvent> events = run(post("/api/auth/login", "{\"username\":\"John.Smith\",\"password\":\"secret\"}"),
+                new MockHttpServletResponse(), 200, "{\"token\":\"eyJhbGciOi.payload.signature\",\"tokenType\":\"Bearer\"}");
+
+        String line = events.get(1).getFormattedMessage();
+        assertFalse(line.contains("eyJhbGciOi"), line);
+        assertTrue(line.contains("\"token\":\"***\""), line);
+        assertTrue(line.contains("\"tokenType\":\"Bearer\""), line);
     }
 }

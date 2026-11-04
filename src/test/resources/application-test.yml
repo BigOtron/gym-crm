@@ -13,5 +13,9 @@ management:
 
 gymcrm:
   security:
+    jwt:
+      secret: test-only-secret-with-at-least-32-bytes-of-text
+    cors:
+      allowed-origins: http://localhost:3000
     # BCrypt is slow on purpose; a low strength keeps the tests fast.
     bcrypt-strength: 4

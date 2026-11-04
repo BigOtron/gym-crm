@@ -1,31 +1,23 @@
 package support;
 
-import io.gymcrm.dto.Credentials;
-import io.gymcrm.web.auth.BasicAuthArgumentResolver;
+import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.web.error.GlobalExceptionHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-
+/**
+ * For controller unit tests: MockMvc around a single controller (with its facade mocked) and the error
+ * handler. No Spring context, database or security filters are started; those are in the integration tests.
+ */
 public final class ControllerTestSupport {
-
-    public static final Credentials JOHN = new Credentials("John.Smith", "secret");
-    public static final Credentials ANNA = new Credentials("Anna.Lee", "secret");
 
     private ControllerTestSupport() {
     }
 
     public static MockMvc mockMvc(Object controller) {
         return MockMvcBuilders.standaloneSetup(controller)
-                .setCustomArgumentResolvers(new BasicAuthArgumentResolver())
-                .setControllerAdvice(new GlobalExceptionHandler())
+                .setControllerAdvice(new GlobalExceptionHandler(new GymMetrics(new SimpleMeterRegistry())))
                 .build();
-    }
-
-    public static String basic(Credentials credentials) {
-        String value = credentials.username() + ":" + credentials.password();
-        return "Basic " + Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 }

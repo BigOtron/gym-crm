@@ -25,7 +25,7 @@ class ErrorHandlingIntegrationTest extends WebTestBase {
     void missingCredentials() throws Exception {
         mvc.perform(get("/api/trainees/John.Smith"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().string("WWW-Authenticate", "Basic realm=\"gym-crm\""))
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
                 .andExpect(content().contentType(PROBLEM))
                 .andExpect(content().json("""
                         {"title":"Unauthorized","status":401,
@@ -34,36 +34,52 @@ class ErrorHandlingIntegrationTest extends WebTestBase {
 
     @Test
     void wrongPassword() throws Exception {
-        mvc.perform(get("/api/auth/login").header("Authorization", basic("John.Smith", "wrong")))
+        login("John.Smith", "wrong")
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value("Invalid username or password"));
     }
 
     @Test
     void unknownUserGetsTheSameMessageAsWrongPassword() throws Exception {
-        mvc.perform(get("/api/auth/login").header("Authorization", basic("Nobody.Here", "wrong")))
+        login("Nobody.Here", "wrong")
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value("Invalid username or password"));
     }
 
     @Test
-    void malformedHeader() throws Exception {
-        mvc.perform(get("/api/auth/login").header("Authorization", "Bearer abc"))
+    void invalidToken() throws Exception {
+        mvc.perform(get("/api/trainees/John.Smith").header("Authorization", "Bearer not-a-real-token"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.detail").value("Only Basic authentication is supported"));
+                .andExpect(content().contentType(PROBLEM))
+                .andExpect(jsonPath("$.detail").value("Invalid or expired token"));
+    }
+
+    @Test
+    void basicAuthIsNoLongerAccepted() throws Exception {
+        mvc.perform(get("/api/trainees/John.Smith").header("Authorization", "Basic Sm9objpzZWNyZXQ="))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Authentication required"));
     }
 
     @Test
     void changePasswordWithWrongOldPassword() throws Exception {
-        mvc.perform(put("/api/auth/password").contentType(MediaType.APPLICATION_JSON).content("""
+        mvc.perform(json(put("/api/auth/password"), john, """
                         {"username":"John.Smith","oldPassword":"wrong","newPassword":"brandNew1"}"""))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("The old password is wrong"));
+    }
+
+    @Test
+    void changePasswordWithoutToken() throws Exception {
+        mvc.perform(put("/api/auth/password").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"username":"John.Smith","oldPassword":"%s","newPassword":"brandNew1"}""".formatted(passwordOf(john))))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void trainerCantUseTraineeOperations() throws Exception {
         mvc.perform(delete("/api/trainees/Anna.Lee").header("Authorization", anna))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 
     // 403 Forbidden
@@ -75,7 +91,7 @@ class ErrorHandlingIntegrationTest extends WebTestBase {
 
         mvc.perform(delete("/api/trainees/John.Smith").header("Authorization", maria))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.detail").value("You can only change your own profile"));
+                .andExpect(jsonPath("$.detail").value("You are not allowed to do this"));
         mvc.perform(json(patch("/api/trainers/Anna.Lee/status"), david, """
                         {"isActive":false}"""))
                 .andExpect(status().isForbidden());
@@ -173,7 +189,7 @@ class ErrorHandlingIntegrationTest extends WebTestBase {
 
     @Test
     void blankNewPasswordIsRejected() throws Exception {
-        mvc.perform(put("/api/auth/password").contentType(MediaType.APPLICATION_JSON).content("""
+        mvc.perform(json(put("/api/auth/password"), john, """
                         {"username":"John.Smith","oldPassword":"%s","newPassword":" "}""".formatted(passwordOf(john))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.newPassword").value("must not be blank"));

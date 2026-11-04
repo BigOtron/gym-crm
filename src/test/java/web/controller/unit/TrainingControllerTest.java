@@ -1,7 +1,6 @@
 package web.controller.unit;
 
 import io.gymcrm.dto.NewTraining;
-import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.facade.GymFacade;
 import io.gymcrm.web.controller.TrainingController;
@@ -11,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -24,8 +24,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static support.ControllerTestSupport.JOHN;
-import static support.ControllerTestSupport.basic;
 import static support.ControllerTestSupport.mockMvc;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,8 +44,7 @@ class TrainingControllerTest {
     }
 
     private static MockHttpServletRequestBuilder add(String body) {
-        return post("/api/trainings").header("Authorization", basic(JOHN))
-                .contentType(MediaType.APPLICATION_JSON).content(body);
+        return post("/api/trainings").contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
     @Test
@@ -56,7 +53,7 @@ class TrainingControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
 
-        verify(facade).addTraining(JOHN, new NewTraining("John.Smith", "Anna.Lee", "Evening yoga",
+        verify(facade).addTraining(new NewTraining("John.Smith", "Anna.Lee", "Evening yoga",
                 LocalDate.of(2026, 9, 20), 60));
     }
 
@@ -92,27 +89,20 @@ class TrainingControllerTest {
 
     @Test
     void addSomeoneElsesTraining() throws Exception {
-        when(facade.addTraining(any(), any()))
-                .thenThrow(new ForbiddenException("Only the trainee or the trainer can add a training"));
+        when(facade.addTraining(any()))
+                .thenThrow(new AccessDeniedException("Only the trainee or the trainer can add a training"));
 
         mvc.perform(add(VALID))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.detail").value("Only the trainee or the trainer can add a training"));
+                .andExpect(jsonPath("$.detail").value("You are not allowed to do this"));
     }
 
     @Test
     void addTrainingWithUnknownTrainer() throws Exception {
-        when(facade.addTraining(any(), any())).thenThrow(new NotFoundException("Trainer not found: Anna.Lee"));
+        when(facade.addTraining(any())).thenThrow(new NotFoundException("Trainer not found: Anna.Lee"));
 
         mvc.perform(add(VALID))
                 .andExpect(status().isNotFound());
     }
 
-    @Test
-    void addTrainingWithoutCredentials() throws Exception {
-        mvc.perform(post("/api/trainings").contentType(MediaType.APPLICATION_JSON).content(VALID))
-                .andExpect(status().isUnauthorized());
-
-        verifyNoInteractions(facade);
-    }
 }

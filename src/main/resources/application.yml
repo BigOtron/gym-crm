@@ -47,6 +47,14 @@ info:
     description: Trainees, trainers and their trainings
 
 gymcrm:
+  security:
+    jwt:
+      # How long a token stays valid. The signing secret is set per environment.
+      lifetime: 1h
+    login:
+      # Brute-force protection: this many failures in a row block the username for this long.
+      max-failures: 3
+      block-duration: 5m
   logging:
     # Servers (stg, prod) keep logs for days, so they add the date.
     time-format: HH:mm:ss.SSS

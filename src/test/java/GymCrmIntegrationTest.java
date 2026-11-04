@@ -1,6 +1,5 @@
 import io.gymcrm.Application;
 import io.gymcrm.dto.CreatedProfile;
-import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeTrainingCriteria;
@@ -12,16 +11,16 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.entities.TrainingType;
-import io.gymcrm.exceptions.AuthenticationException;
 import io.gymcrm.exceptions.ConflictException;
-import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.facade.GymFacade;
+import io.gymcrm.security.Role;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
 import java.time.LocalDate;
@@ -33,12 +32,22 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static support.SecurityTestSupport.loginAs;
+import static support.SecurityTestSupport.logout;
 
+/**
+ * Runs the whole application against an in-memory H2 database. There is no test-wide transaction,
+ * so every facade call commits on its own, just like in the real application.
+ * Each call runs as the user set with loginAs; ServiceAuthenticationIntegrationTest covers the rules.
+ */
 @SpringBootTest(classes = Application.class)
 class GymCrmIntegrationTest {
 
     private static final long YOGA = 6L;
     private static final long HEAVY_LIFTING = 3L;
+    private static final String JOHN = "John.Smith";
+    private static final String ANNA = "Anna.Lee";
+    private static final String DAVID = "David.Brown";
 
     @Autowired
     private GymFacade facade;
@@ -46,49 +55,46 @@ class GymCrmIntegrationTest {
     @Autowired
     private DataSource dataSource;
 
-    private Credentials john;
-    private Credentials anna;
-    private Credentials david;
+    private String johnPassword;
 
     @BeforeEach
     void setUp() {
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        jdbc.update("delete from training");
-        jdbc.update("delete from trainee_trainer");
-        jdbc.update("delete from trainee");
-        jdbc.update("delete from trainer");
-        jdbc.update("delete from users");
-
-        john = credentials(facade.createTrainee(
-                new TraineeRegistration("John", "Smith", LocalDate.of(1995, 4, 12), "Tashkent")));
-        anna = credentials(facade.createTrainer(new TrainerRegistration("Anna", "Lee", YOGA)));
-        david = credentials(facade.createTrainer(new TrainerRegistration("David", "Brown", HEAVY_LIFTING)));
+        JdbcTemplate jdbc = jdbc();
+        for (String table : new String[]{"training", "trainee_trainer", "trainee", "trainer", "users"}) {
+            jdbc.update("delete from " + table);
+        }
+        CreatedProfile<Trainee> john = facade.createTrainee(
+                new TraineeRegistration("John", "Smith", LocalDate.of(1995, 4, 12), "Tashkent"));
+        johnPassword = john.password();
+        facade.createTrainer(new TrainerRegistration("Anna", "Lee", YOGA));
+        facade.createTrainer(new TrainerRegistration("David", "Brown", HEAVY_LIFTING));
+        loginAs(JOHN, Role.TRAINEE);
     }
 
-    /** The generated password comes with the registration; the database only has its hash. */
-    private static Credentials credentials(CreatedProfile<?> created) {
-        Object profile = created.profile();
-        String username = profile instanceof Trainee trainee
-                ? trainee.getUser().getUsername()
-                : ((Trainer) profile).getUser().getUsername();
-        return new Credentials(username, created.password());
+    @AfterEach
+    void tearDown() {
+        logout();
     }
 
-    private Training addTraining(Credentials trainee, Credentials trainer, String name, LocalDate date) {
-        return facade.addTraining(trainer, new NewTraining(trainee.username(), trainer.username(), name, date, 60));
+    private JdbcTemplate jdbc() {
+        return new JdbcTemplate(dataSource);
+    }
+
+    private Training addTraining(String trainer, String name, LocalDate date) {
+        return facade.addTraining(new NewTraining(JOHN, trainer, name, date, 60));
     }
 
     @Test
-    void createProfilesGeneratesUsernamesAndPasswords() {
-        assertEquals("John.Smith", john.username());
-        assertEquals(10, john.password().length());
+    void createProfilesGeneratesUsernamesPasswordsAndTokens() {
+        assertEquals(10, johnPassword.length());
 
-        Trainee namesake = facade.createTrainee(new TraineeRegistration("John", "Smith", null, null)).profile();
-        Trainer trainerNamesake = facade.createTrainer(new TrainerRegistration("John", "Smith", YOGA)).profile();
+        CreatedProfile<Trainee> namesake = facade.createTrainee(new TraineeRegistration("John", "Smith", null, null));
+        CreatedProfile<Trainer> trainerNamesake = facade.createTrainer(new TrainerRegistration("John", "Smith", YOGA));
 
-        assertEquals("John.Smith1", namesake.getUser().getUsername());
-        assertEquals("John.Smith2", trainerNamesake.getUser().getUsername());
-        assertTrue(namesake.getUser().isActive());
+        assertEquals("John.Smith1", namesake.profile().getUser().getUsername());
+        assertEquals("John.Smith2", trainerNamesake.profile().getUser().getUsername());
+        assertTrue(namesake.profile().getUser().isActive());
+        assertNotNull(namesake.token().token());
     }
 
     @Test
@@ -102,134 +108,90 @@ class GymCrmIntegrationTest {
     }
 
     @Test
-    void credentialsMatching() {
-        assertTrue(facade.traineeCredentialsMatch(john));
-        assertTrue(facade.trainerCredentialsMatch(anna));
-        assertFalse(facade.traineeCredentialsMatch(new Credentials(john.username(), "wrong")));
-        assertFalse(facade.traineeCredentialsMatch(anna));
-        assertFalse(facade.trainerCredentialsMatch(john));
-    }
+    void trainingTypes() {
+        List<String> types = facade.getTrainingTypes().stream().map(TrainingType::getTrainingTypeName).toList();
 
-    @Test
-    void everyOperationExceptCreateRequiresAuthentication() {
-        Credentials bad = new Credentials(john.username(), "wrong");
-
-        assertThrows(AuthenticationException.class, () -> facade.getTraineeByUsername(bad, john.username()));
-        assertThrows(AuthenticationException.class, () -> facade.login(bad));
-        assertThrows(AuthenticationException.class, () -> facade.changePassword(bad, "x"));
-        assertThrows(AuthenticationException.class, () -> facade.setTraineeActive(bad, john.username(), false));
-        assertThrows(AuthenticationException.class, () -> facade.deleteTrainee(bad, john.username()));
-        assertThrows(AuthenticationException.class, () -> facade.getTrainingTypes(bad));
-        // A trainer can't use trainee operations and vice versa, even on their own username.
-        assertThrows(AuthenticationException.class, () -> facade.updateTraineeTrainers(anna, anna.username(), List.of()));
-        assertThrows(AuthenticationException.class, () -> facade.setTrainerActive(john, john.username(), false));
-    }
-
-    @Test
-    void changingSomeoneElsesProfileIsForbidden() {
-        Credentials maria = credentials(facade.createTrainee(new TraineeRegistration("Maria", "Garcia", null, null)));
-
-        assertThrows(ForbiddenException.class, () -> facade.deleteTrainee(maria, john.username()));
-        assertThrows(ForbiddenException.class, () -> facade.setTrainerActive(david, anna.username(), false));
-        assertNotNull(facade.getTraineeByUsername(maria, john.username()));
-    }
-
-    @Test
-    void loginAndTrainingTypes() {
-        facade.login(john);
-        facade.login(anna);
-
-        List<String> types = facade.getTrainingTypes(john).stream().map(TrainingType::getTrainingTypeName).toList();
         assertEquals(List.of("Fitness", "Running", "Heavy lifting", "Pull ups", "Push ups", "Yoga"), types);
     }
 
     @Test
     void selectProfilesByUsername() {
-        Trainee trainee = facade.getTraineeByUsername(anna, john.username());
-        Trainer trainer = facade.getTrainerByUsername(john, anna.username());
+        Trainee trainee = facade.getTraineeByUsername(JOHN);
+        Trainer trainer = facade.getTrainerByUsername(ANNA);
 
         assertEquals("Tashkent", trainee.getAddress());
         assertEquals("Yoga", trainer.getSpecialization().getTrainingTypeName());
-        assertThrows(NotFoundException.class, () -> facade.getTraineeByUsername(john, "Nobody.Here"));
-    }
-
-    @Test
-    void changePasswords() {
-        facade.changePassword(john, "newTraineePass");
-        facade.changePassword(anna, "newTrainerPass");
-
-        assertFalse(facade.traineeCredentialsMatch(john));
-        assertTrue(facade.traineeCredentialsMatch(new Credentials(john.username(), "newTraineePass")));
-        assertTrue(facade.trainerCredentialsMatch(new Credentials(anna.username(), "newTrainerPass")));
+        assertThrows(NotFoundException.class, () -> facade.getTraineeByUsername("Nobody.Here"));
     }
 
     @Test
     void updateProfiles() {
-        facade.updateTrainee(john, john.username(),
-                new TraineeUpdate("Johnny", "Smith", LocalDate.of(1995, 4, 13), "Samarkand", true));
-        facade.updateTrainer(anna, anna.username(), new TrainerUpdate("Ann", "Lee", false));
+        facade.updateTrainee(JOHN, new TraineeUpdate("Johnny", "Smith", LocalDate.of(1995, 4, 13), "Samarkand", true));
+        loginAs(ANNA, Role.TRAINER);
+        facade.updateTrainer(ANNA, new TrainerUpdate("Ann", "Lee", false));
 
-        Trainee trainee = facade.getTraineeByUsername(john, john.username());
-        Trainer trainer = facade.getTrainerByUsername(john, anna.username());
+        Trainee trainee = facade.getTraineeByUsername(JOHN);
+        Trainer trainer = facade.getTrainerByUsername(ANNA);
         assertEquals("Johnny", trainee.getUser().getFirstName());
         assertEquals("Samarkand", trainee.getAddress());
-        assertEquals("John.Smith", trainee.getUser().getUsername());
+        assertEquals(JOHN, trainee.getUser().getUsername());
         assertEquals("Ann", trainer.getUser().getFirstName());
         assertFalse(trainer.getUser().isActive());
         assertEquals("Yoga", trainer.getSpecialization().getTrainingTypeName());
+
+        loginAs(JOHN, Role.TRAINEE);
         assertThrows(IllegalArgumentException.class,
-                () -> facade.updateTrainee(john, john.username(), new TraineeUpdate(null, "Smith", null, null, true)));
+                () -> facade.updateTrainee(JOHN, new TraineeUpdate(null, "Smith", null, null, true)));
     }
 
     @Test
     void setActiveIsNotIdempotent() {
-        facade.setTraineeActive(john, john.username(), false);
-        assertFalse(facade.getTraineeByUsername(john, john.username()).getUser().isActive());
+        facade.setTraineeActive(JOHN, false);
+        assertFalse(facade.getTraineeByUsername(JOHN).getUser().isActive());
 
-        assertThrows(ConflictException.class, () -> facade.setTraineeActive(john, john.username(), false));
+        assertThrows(ConflictException.class, () -> facade.setTraineeActive(JOHN, false));
 
-        facade.setTraineeActive(john, john.username(), true);
-        facade.setTrainerActive(anna, anna.username(), false);
-        assertFalse(facade.getTrainerByUsername(john, anna.username()).getUser().isActive());
+        facade.setTraineeActive(JOHN, true);
+        loginAs(ANNA, Role.TRAINER);
+        facade.setTrainerActive(ANNA, false);
+        assertFalse(facade.getTrainerByUsername(ANNA).getUser().isActive());
     }
 
     @Test
     void deleteTraineeCascadesToTrainings() {
-        addTraining(john, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
+        addTraining(ANNA, "Yoga 1", LocalDate.of(2026, 9, 1));
 
-        facade.deleteTrainee(john, john.username());
+        facade.deleteTrainee(JOHN);
 
-        assertThrows(NotFoundException.class, () -> facade.getTraineeByUsername(anna, john.username()));
-        assertTrue(facade.getTrainerTrainings(anna, anna.username(), TrainerTrainingCriteria.none()).isEmpty());
-        assertNotNull(facade.getTrainerByUsername(anna, anna.username()));
+        assertThrows(NotFoundException.class, () -> facade.getTraineeByUsername(JOHN));
+        assertTrue(facade.getTrainerTrainings(ANNA, TrainerTrainingCriteria.none()).isEmpty());
+        assertNotNull(facade.getTrainerByUsername(ANNA));
     }
 
     @Test
     void addTrainingTakesTypeFromTrainerAndAssignsTrainer() {
-        Training training = addTraining(john, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
+        Training training = addTraining(ANNA, "Yoga 1", LocalDate.of(2026, 9, 1));
 
         assertNotNull(training.getId());
         assertEquals("Yoga", training.getTrainingType().getTrainingTypeName());
-        assertEquals(1, facade.getTraineeByUsername(john, john.username()).getTrainers().size());
+        assertEquals(1, facade.getTraineeByUsername(JOHN).getTrainers().size());
     }
 
     @Test
     void addTrainingValidatesInput() {
-        assertThrows(IllegalArgumentException.class, () -> facade.addTraining(anna,
-                new NewTraining(john.username(), anna.username(), "Yoga", LocalDate.now(), 0)));
-        assertThrows(NotFoundException.class, () -> facade.addTraining(anna,
-                new NewTraining("Nobody.Here", anna.username(), "Yoga", LocalDate.now(), 30)));
-        assertThrows(ForbiddenException.class, () -> facade.addTraining(david,
-                new NewTraining(john.username(), anna.username(), "Yoga", LocalDate.now(), 30)));
+        assertThrows(IllegalArgumentException.class,
+                () -> facade.addTraining(new NewTraining(JOHN, ANNA, "Yoga", LocalDate.now(), 0)));
+        assertThrows(NotFoundException.class,
+                () -> facade.addTraining(new NewTraining(JOHN, "Nobody.Here", "Yoga", LocalDate.now(), 30)));
     }
 
     @Test
     void traineeTrainingsByCriteria() {
-        addTraining(john, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
-        addTraining(john, anna, "Yoga 2", LocalDate.of(2026, 9, 15));
-        addTraining(john, david, "Lifting", LocalDate.of(2026, 9, 20));
+        addTraining(ANNA, "Yoga 1", LocalDate.of(2026, 9, 1));
+        addTraining(ANNA, "Yoga 2", LocalDate.of(2026, 9, 15));
+        addTraining(DAVID, "Lifting", LocalDate.of(2026, 9, 20));
 
-        assertEquals(3, trainingsOfJohn(new TraineeTrainingCriteria(null, null, null, null)));
+        assertEquals(3, trainingsOfJohn(TraineeTrainingCriteria.none()));
         assertEquals(2, trainingsOfJohn(new TraineeTrainingCriteria(LocalDate.of(2026, 9, 10), null, null, null)));
         assertEquals(1, trainingsOfJohn(new TraineeTrainingCriteria(null, LocalDate.of(2026, 9, 1), null, null)));
         assertEquals(2, trainingsOfJohn(new TraineeTrainingCriteria(null, null, "anna", null)));
@@ -239,79 +201,74 @@ class GymCrmIntegrationTest {
                 LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 16), "Lee", "Yoga")));
 
         // Fetched associations are usable after the transaction has ended.
-        Training first = facade.getTraineeTrainings(john, john.username(), TraineeTrainingCriteria.none()).get(0);
+        Training first = facade.getTraineeTrainings(JOHN, TraineeTrainingCriteria.none()).get(0);
         assertEquals("Yoga 1", first.getTrainingName());
         assertEquals("Anna", first.getTrainer().getUser().getFirstName());
     }
 
     private int trainingsOfJohn(TraineeTrainingCriteria criteria) {
-        return facade.getTraineeTrainings(john, john.username(), criteria).size();
+        return facade.getTraineeTrainings(JOHN, criteria).size();
     }
 
     @Test
     void trainerTrainingsByCriteria() {
-        Credentials maria = credentials(facade.createTrainee(
-                new TraineeRegistration("Maria", "Garcia", null, null)));
-        addTraining(john, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
-        addTraining(maria, anna, "Yoga 2", LocalDate.of(2026, 9, 15));
+        facade.createTrainee(new TraineeRegistration("Maria", "Garcia", null, null));
+        addTraining(ANNA, "Yoga 1", LocalDate.of(2026, 9, 1));
+        loginAs("Maria.Garcia", Role.TRAINEE);
+        facade.addTraining(new NewTraining("Maria.Garcia", ANNA, "Yoga 2", LocalDate.of(2026, 9, 15), 60));
 
-        assertEquals(2, facade.getTrainerTrainings(anna, anna.username(), TrainerTrainingCriteria.none()).size());
-        assertEquals(1, facade.getTrainerTrainings(anna, anna.username(),
-                new TrainerTrainingCriteria(null, null, "garcia")).size());
-        assertEquals(1, facade.getTrainerTrainings(anna, anna.username(),
+        assertEquals(2, facade.getTrainerTrainings(ANNA, TrainerTrainingCriteria.none()).size());
+        assertEquals(1, facade.getTrainerTrainings(ANNA, new TrainerTrainingCriteria(null, null, "garcia")).size());
+        assertEquals(1, facade.getTrainerTrainings(ANNA,
                 new TrainerTrainingCriteria(LocalDate.of(2026, 9, 2), LocalDate.of(2026, 9, 30), null)).size());
     }
 
     @Test
     void trainersNotAssignedToTrainee() {
-        Credentials inactive = credentials(facade.createTrainer(new TrainerRegistration("Old", "Coach", YOGA)));
-        facade.setTrainerActive(inactive, inactive.username(), false);
-        addTraining(john, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
+        facade.createTrainer(new TrainerRegistration("Old", "Coach", YOGA));
+        loginAs("Old.Coach", Role.TRAINER);
+        facade.setTrainerActive("Old.Coach", false);
+        loginAs(JOHN, Role.TRAINEE);
+        addTraining(ANNA, "Yoga 1", LocalDate.of(2026, 9, 1));
 
-        List<Trainer> free = facade.getTrainersNotAssignedToTrainee(john, john.username());
+        List<Trainer> free = facade.getTrainersNotAssignedToTrainee(JOHN);
 
-        assertEquals(List.of(david.username()), free.stream().map(t -> t.getUser().getUsername()).toList());
+        assertEquals(List.of(DAVID), free.stream().map(t -> t.getUser().getUsername()).toList());
     }
 
     @Test
     void updateTraineeTrainersReplacesTheList() {
-        addTraining(john, anna, "Yoga 1", LocalDate.of(2026, 9, 1));
+        addTraining(ANNA, "Yoga 1", LocalDate.of(2026, 9, 1));
 
-        List<Trainer> trainers = facade.updateTraineeTrainers(john, john.username(), List.of(david.username()));
+        List<Trainer> trainers = facade.updateTraineeTrainers(JOHN, List.of(DAVID));
 
         assertEquals(1, trainers.size());
-        Trainee trainee = facade.getTraineeByUsername(john, john.username());
-        assertEquals(List.of(david.username()),
-                trainee.getTrainers().stream().map(t -> t.getUser().getUsername()).toList());
-        assertThrows(NotFoundException.class,
-                () -> facade.updateTraineeTrainers(john, john.username(), List.of("Nobody.Here")));
+        Trainee trainee = facade.getTraineeByUsername(JOHN);
+        assertEquals(List.of(DAVID), trainee.getTrainers().stream().map(t -> t.getUser().getUsername()).toList());
+        assertThrows(NotFoundException.class, () -> facade.updateTraineeTrainers(JOHN, List.of("Nobody.Here")));
         // Removing a trainer from the list doesn't remove past trainings.
-        assertEquals(1, facade.getTraineeTrainings(john, john.username(), TraineeTrainingCriteria.none()).size());
+        assertEquals(1, facade.getTraineeTrainings(JOHN, TraineeTrainingCriteria.none()).size());
     }
 
     @Test
     void passwordsAreStoredAsSaltedHashes() {
-        String stored = jdbc().queryForObject("select password from users where username = ?", String.class,
-                john.username());
+        String stored = jdbc().queryForObject("select password from users where username = ?", String.class, JOHN);
 
         assertTrue(stored.startsWith("$2a$"), "a BCrypt hash: " + stored);
-        assertFalse(stored.contains(john.password()));
-        assertTrue(facade.traineeCredentialsMatch(john), "the plain password still logs in");
+        assertFalse(stored.contains(johnPassword));
     }
 
     @Test
     void equalPasswordsGetDifferentHashesBecauseOfTheSalt() {
-        facade.changePassword(john, "samePassword1");
-        facade.changePassword(anna, "samePassword1");
+        facade.changePassword(JOHN, johnPassword, "samePassword1");
+        CreatedProfile<Trainee> maria = facade.createTrainee(new TraineeRegistration("Maria", "Garcia", null, null));
+        loginAs("Maria.Garcia", Role.TRAINEE);
+        facade.changePassword("Maria.Garcia", maria.password(), "samePassword1");
 
         List<String> hashes = jdbc().queryForList("select password from users where username in (?, ?)",
-                String.class, john.username(), anna.username());
+                String.class, JOHN, "Maria.Garcia");
 
         assertEquals(2, hashes.size());
         assertNotEquals(hashes.get(0), hashes.get(1));
-    }
-
-    private JdbcTemplate jdbc() {
-        return new JdbcTemplate(dataSource);
     }
 }

@@ -11,11 +11,12 @@ import java.util.Arrays;
 
 @Slf4j
 @Component
-public class DatabaseSettingsCheck implements BeanFactoryPostProcessor, EnvironmentAware {
+public class RequiredSettingsCheck implements BeanFactoryPostProcessor, EnvironmentAware {
 
     static final String URL = "spring.datasource.url";
     static final String USERNAME = "spring.datasource.username";
     static final String PASSWORD = "spring.datasource.password";
+    static final String JWT_SECRET = "gymcrm.security.jwt.secret";
 
     private Environment environment;
 
@@ -29,6 +30,7 @@ public class DatabaseSettingsCheck implements BeanFactoryPostProcessor, Environm
         String url = require(URL);
         String username = require(USERNAME);
         require(PASSWORD);
+        require(JWT_SECRET);
         log.info("Environment {}: database {} as user {}", activeProfiles(), url, username);
     }
 

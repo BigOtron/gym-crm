@@ -4,7 +4,6 @@ import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingTypeDao;
 import io.gymcrm.dto.CreatedProfile;
-import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TrainerRegistration;
 import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainer;
@@ -13,45 +12,45 @@ import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.metrics.GymMetrics;
-import io.gymcrm.services.AuthenticationService;
+import io.gymcrm.security.JwtTokenService;
+import io.gymcrm.security.Role;
 import io.gymcrm.services.TrainerService;
 import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
 
-import static io.gymcrm.services.Access.requireOwnProfile;
 import static io.gymcrm.services.Validation.requireText;
 import static io.gymcrm.services.Validation.requireValue;
 
 @Slf4j
 @Service
 @Transactional
+@PreAuthorize("isAuthenticated()")
 public class TrainerServiceImpl implements TrainerService {
 
+    /** Only the trainer who owns the profile may change it. */
+    private static final String OWNER = "hasRole('TRAINER') and #username == authentication.name";
+
     private TrainerDao trainerDao;
-    private AuthenticationService authenticationService;
     private GymMetrics metrics;
     private TrainingTypeDao trainingTypeDao;
     private TraineeDao traineeDao;
     private UsernameGenerator usernameGenerator;
     private PasswordGenerator passwordGenerator;
     private PasswordEncoder passwordEncoder;
+    private JwtTokenService tokenService;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
         this.metrics = metrics;
-    }
-
-    @Autowired
-    public void setAuthenticationService(AuthenticationService authenticationService) {
-        this.authenticationService = authenticationService;
     }
 
     @Autowired
@@ -75,6 +74,11 @@ public class TrainerServiceImpl implements TrainerService {
     }
 
     @Autowired
+    public void setTokenService(JwtTokenService tokenService) {
+        this.tokenService = tokenService;
+    }
+
+    @Autowired
     public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
     }
@@ -85,6 +89,7 @@ public class TrainerServiceImpl implements TrainerService {
     }
 
     @Override
+    @PreAuthorize("permitAll()")
     public CreatedProfile<Trainer> create(TrainerRegistration registration) {
         Objects.requireNonNull(registration, "registration must not be null");
         String firstName = requireText(registration.firstName(), "First name");
@@ -103,30 +108,19 @@ public class TrainerServiceImpl implements TrainerService {
         log.info("Trainer created: {} (id {}), specialization {}",
                 user.getUsername(), created.getId(), specialization.getTrainingTypeName());
         metrics.userRegistered(GymMetrics.TRAINER);
-        return new CreatedProfile<>(created, password);
+        return new CreatedProfile<>(created, password, tokenService.issue(user.getUsername(), Role.TRAINER));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Trainer getByUsername(Credentials auth, String username) {
-        authenticationService.authenticate(auth);
+    public Trainer getByUsername(String username) {
         log.debug("Selecting trainer by username {}", username);
         return find(username);
     }
 
     @Override
-    public void changePassword(Credentials auth, String newPassword) {
-        authenticationService.authenticateTrainer(auth);
-        String username = auth.username();
-        String password = requireText(newPassword, "New password");
-        find(username).getUser().setPassword(passwordEncoder.encode(password));
-        log.info("Trainer {} changed password", username);
-    }
-
-    @Override
-    public Trainer update(Credentials auth, String username, TrainerUpdate update) {
-        authenticationService.authenticateTrainer(auth);
-        requireOwnProfile(auth, username);
+    @PreAuthorize(OWNER)
+    public Trainer update(String username, TrainerUpdate update) {
         Objects.requireNonNull(update, "update must not be null");
         String firstName = requireText(update.firstName(), "First name");
         String lastName = requireText(update.lastName(), "Last name");
@@ -141,9 +135,8 @@ public class TrainerServiceImpl implements TrainerService {
     }
 
     @Override
-    public void setActive(Credentials auth, String username, boolean active) {
-        authenticationService.authenticateTrainer(auth);
-        requireOwnProfile(auth, username);
+    @PreAuthorize(OWNER)
+    public void setActive(String username, boolean active) {
         User user = find(username).getUser();
         String state = active ? "active" : "inactive";
         if (user.isActive() == active) {
@@ -156,8 +149,7 @@ public class TrainerServiceImpl implements TrainerService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Trainer> getNotAssignedToTrainee(Credentials auth, String traineeUsername) {
-        authenticationService.authenticate(auth);
+    public List<Trainer> getNotAssignedToTrainee(String traineeUsername) {
         if (traineeDao.findByUsername(traineeUsername).isEmpty()) {
             log.warn("Trainee not found by username {}", traineeUsername);
             throw new NotFoundException("Trainee not found: " + traineeUsername);

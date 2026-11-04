@@ -1,26 +1,26 @@
-# Gym CRM — REST API
+# Gym CRM
 
 A REST API for a gym CRM: trainee and trainer profiles, the trainees' trainers, trainings and training types.
-Built with plain Spring (no Spring Boot): Spring MVC runs in an embedded Tomcat, and data is stored in
-PostgreSQL through Hibernate.
+A Spring Boot application secured with Spring Security and JWT, storing its data in PostgreSQL through Hibernate.
 
 ## Tech stack
 
-- Java 17 or newer
-- Spring Framework 7 (`spring-webmvc`, `spring-orm`), configured with annotations
-- Embedded Tomcat 11
-- Hibernate ORM 7 (JPA), HikariCP, PostgreSQL
+- Java 17 or newer, Gradle
+- Spring Boot 4 (Spring Framework 7, Spring MVC, embedded Tomcat)
+- Spring Security with JWT (OAuth2 resource server support), BCrypt password hashing
+- Hibernate ORM 7 (JPA), HikariCP, PostgreSQL; H2 for tests and the `standalone` profile
+- Spring Boot Actuator, Micrometer with Prometheus
 - Jackson 3 for JSON, Hibernate Validator for request validation
 - Swagger (OpenAPI 3) annotations for API documentation
 - SLF4J + Logback, Lombok
-- JUnit 5, Mockito, Spring MockMvc, H2 (tests only)
-- Gradle
+- JUnit 5, Mockito, Spring MockMvc
+- Docker
 
 ## Running
 
 ### 1. Database
 
-Create a PostgreSQL user and database (the defaults in `application.properties`):
+Create a PostgreSQL user and database (the defaults of the `local` profile, in `application-local.yml`):
 
 ```bash
 psql -U postgres -c "CREATE USER gymcrm WITH PASSWORD 'gymcrm';"
@@ -29,26 +29,52 @@ psql -U postgres -c "CREATE DATABASE gymcrm OWNER gymcrm;"
 
 The tables are created on start-up by `db/schema.sql`, and the training types are inserted by
 `db/data.sql`. Both scripts can run on every start. Hibernate only validates that the tables match the
-entities (`hibernate.hbm2ddl.auto=validate`).
-
-The database user and password can be overridden with the `DB_USERNAME` and `DB_PASSWORD` environment variables.
+entities (`spring.jpa.hibernate.ddl-auto: validate`).
 
 ### 2. Server
 
-Run `io.gymcrm.Application`. It starts Tomcat on port 8080 (but it can be configured)
-and logs `Gym CRM started on http://localhost:8080`. If the database can't be reached, the application
-exits with an error instead of starting.
-
-### 3. You can try it
+Run `io.gymcrm.Application`, or:
 
 ```bash
-# Register a trainer (no authentication); the response contains the generated username and password
+./gradlew bootRun
+```
+
+It starts on port 8080 (change it with `SERVER_PORT` or `--server.port=9090`) and logs
+`Started Application in ... seconds`. If the database can't be reached or a required setting is missing, the
+application exits with an error instead of starting.
+
+### 3. Environments
+
+Choose one with `SPRING_PROFILES_ACTIVE`; without it, `local` is used.
+
+| Profile      | Database                                  | From the environment                         |
+|--------------|-------------------------------------------|----------------------------------------------|
+| `local`      | PostgreSQL on `localhost`, `gymcrm`       | nothing required                             |
+| `standalone` | in-memory H2, data is lost on stop        | nothing required                             |
+| `dev`        | `dev-db.gymcrm.internal`, `gymcrm_dev`    | `DB_PASSWORD`, `JWT_SECRET`                  |
+| `stg`        | `stg-db.gymcrm.internal`, `gymcrm_stg`    | `DB_PASSWORD`, `JWT_SECRET`                  |
+| `prod`       | `DB_HOST`, `gymcrm`                       | `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET` |
+
+`JWT_SECRET` must be at least 32 bytes long. `CORS_ALLOWED_ORIGINS` sets which websites may call the API.
+
+### 4. Try it
+
+```bash
+# Register (no token needed): the response has the generated username and password, and a token
 curl -i -H "Content-Type: application/json" \
      -d '{"firstName":"Anna","lastName":"Lee","specializationId":6}' \
      localhost:8080/api/trainers
 
-# Use them for everything else
-curl -i -u Anna.Lee:<password> localhost:8080/api/trainers/Anna.Lee
+# Or log in to get a new token
+curl -i -H "Content-Type: application/json" \
+     -d '{"username":"Anna.Lee","password":"<password>"}' \
+     localhost:8080/api/auth/login
+
+# Use the token for everything else
+curl -i -H "Authorization: Bearer <token>" localhost:8080/api/trainers/Anna.Lee
+
+# Log out: the token stops working
+curl -i -X POST -H "Authorization: Bearer <token>" localhost:8080/api/auth/logout
 ```
 
 ### Tests
@@ -123,7 +149,7 @@ Every log line contains the request's transaction id, which is also returned in 
 |----|------------------------------------|----------------------------------------------------|---------|
 | 1  | Trainee registration               | `POST /api/trainees`                               | 201     |
 | 2  | Trainer registration               | `POST /api/trainers`                               | 201     |
-| 3  | Login                              | `GET /api/auth/login`                              | 200     |
+| 3  | Login, returns a token             | `POST /api/auth/login`                             | 200     |
 | 4  | Change password                    | `PUT /api/auth/password`                           | 200     |
 | 5  | Get trainee profile                | `GET /api/trainees/{username}`                     | 200     |
 | 6  | Update trainee profile             | `PUT /api/trainees/{username}`                     | 200     |
@@ -138,6 +164,7 @@ Every log line contains the request's transaction id, which is also returned in 
 | 15 | Activate/de-activate trainee       | `PATCH /api/trainees/{username}/status`            | 200     |
 | 16 | Activate/de-activate trainer       | `PATCH /api/trainers/{username}/status`            | 200     |
 | 17 | Training types                     | `GET /api/training-types`                          | 200     |
+| 18 | Logout, revokes the token          | `POST /api/auth/logout`                            | 200     |
 
 The request and response fields, and every possible error, are documented with Swagger annotations in the
 controllers (`io.gymcrm.web.controller`).
@@ -163,18 +190,28 @@ Training filters are query parameters, all optional: `from`, `to` (dates as `yyy
 `traineeName` (part of the first or last name, case-insensitive) and `trainingType` (type name).
 Example: `GET /api/trainees/John.Smith/trainings?from=2026-09-01&trainerName=anna`.
 
+### Security
+
+- **Authentication.** Log in (or register) to get a JWT and send it as `Authorization: Bearer <token>`. Only the
+  two registrations and the login work without a token. Tokens are valid for 1 hour and are signed with
+  HMAC-SHA256, so they can't be changed or forged without the secret.
+- **Passwords** are stored as salted BCrypt hashes. The generated password is returned only once, in the
+  registration response.
+- **Brute-force protection.** After 3 failed logins in a row, the username is blocked for 5 minutes, even with
+  the right password (`429` with a `Retry-After` header). Unknown usernames are treated the same way.
+- **Logout.** A token is valid on its own until it expires, so logout puts its id on a revocation list.
+- **Authorization** is enforced in the service layer with `@PreAuthorize`, so it can't be skipped by calling a
+  service directly. Changing a profile (update, delete, status, trainers list, password) is only allowed for
+  its owner with the right role; otherwise the response is `403`. Any logged-in user can read profiles and
+  training lists. A training can be added by its trainee or its trainer.
+- **CORS.** Only the origins in `gymcrm.security.cors.allowed-origins` may call the API from a browser.
+- **CSRF protection is off**, because it defends against cookies being sent automatically. This API uses no
+  cookies or HTTP sessions: every request carries its token explicitly.
+
 ### Rules
 
-- **Authentication.** Every endpoint except the two registrations and the password change needs an HTTP Basic
-  `Authorization` header (`curl -u username:password`). The password change is authenticated by the old
-  password in its body. The check happens in the service layer, so it can't be skipped by calling a service
-  directly.
-- **Own profile only.** Changing a profile (update, delete, status, trainers list) is only allowed on the
-  authenticated user's own profile; otherwise the response is `403`. Any authenticated user can read profiles
-  and training lists. A training can be added by its trainee or its trainer.
 - **Usernames** are generated at registration as `firstName.lastName`, with the lowest free number added if
   the name is taken (`John.Smith1`). They can't be changed.
-- **Passwords** are random 10-character strings, returned only once, in the registration response.
 - **Activate/de-activate is not idempotent.** Requesting the state the user is already in returns `409`.
 - **A trainer's specialization is read-only.** A `specializationId` sent in an update is ignored.
 - **A new training** gets the trainer's specialization as its type, and the trainer is added to the trainee's
@@ -191,10 +228,11 @@ Example: `GET /api/trainees/John.Smith/trainings?from=2026-09-01&trainerName=ann
 | Status | When                                                                          |
 |--------|-------------------------------------------------------------------------------|
 | 400    | Invalid input; validation errors list every invalid field under `"errors"`    |
-| 401    | Missing or wrong credentials, or the wrong role (e.g. a trainer calling a trainee operation) |
-| 403    | Changing someone else's profile, or adding someone else's training            |
+| 401    | Wrong username or password; missing, invalid, expired or revoked token        |
+| 403    | The wrong role, someone else's profile, or someone else's training            |
 | 404    | Unknown user, trainer or training type, or unknown URL                        |
 | 409    | Activating an active user or de-activating an inactive one                    |
+| 429    | Login blocked after too many failed attempts; see `Retry-After`               |
 | 500    | Unexpected error; the details are logged, not returned                        |
 
 ## Logging
@@ -215,24 +253,44 @@ INFO  [5a02a33e-…] TrainerServiceImpl    - Trainer created: Anna.Lee (id 1), s
 INFO  [5a02a33e-…] RestCallLoggingFilter - Response POST /api/trainers 201 in 332 ms, request body: {...}, response body: {"username":"Anna.Lee","password":"***"}
 ```
 
+## Monitoring
+
+| Endpoint               | Token needed | Shows                                                               |
+|------------------------|--------------|---------------------------------------------------------------------|
+| `/actuator/health`     | no           | Every health check; details only on `local`, `dev` and `standalone` |
+| `/actuator/info`       | no           | Application, build and Java information                             |
+| `/actuator/prometheus` | no           | All metrics in Prometheus format                                    |
+| `/actuator/metrics`    | yes          | All metrics as JSON                                                 |
+
+Restrict the public endpoints at the network level on real servers.
+
+- **Custom health checks:** `trainingTypes` (reference data present), `databaseResponseTime` (below a limit) and
+  `trainerAvailability` (a custom `WARNING` status when a training type has no active trainer; still HTTP 200).
+- **Custom metrics:** `gymcrm_registrations_total`, `gymcrm_logins_total` (success, failure, blocked),
+  `gymcrm_authentication_failures_total`, `gymcrm_trainings_added_total`, `gymcrm_trainings_duration_minutes`
+  and `gymcrm_users_active`.
+
 ## Project structure
 
 ```
 io.gymcrm
-├── Application                  starts embedded Tomcat with the DispatcherServlet and the filters
-├── config                       AppConfig (core), PersistenceConfig (DataSource, Hibernate, transactions)
+├── Application                  the Spring Boot entry point
+├── config                       RequiredSettingsCheck: stops the start-up if a required setting is missing
+├── security                     SecurityConfig (filter chain, CORS, BCrypt), JwtConfig, JwtTokenService,
+│                                TokenRevocationService, LoginAttemptService, GymUserDetailsService,
+│                                JwtLogoutHandler, SecurityErrorHandler
 ├── entities                     User, Trainee, Trainer, Training, TrainingType (JPA)
-├── dto                          facade inputs: Credentials, registrations, updates, training criteria
-├── exceptions                   AuthenticationException (401), ForbiddenException (403),
-│                                NotFoundException (404), ConflictException (409)
+├── dto                          facade inputs and results: Credentials, IssuedToken, CreatedProfile, ...
+├── exceptions                   AuthenticationException (401), NotFoundException (404),
+│                                ConflictException (409), LoginBlockedException (429)
 ├── dao                          DAOs using the EntityManager and the Criteria API
-├── services                     business logic, validation, authentication and "own profile only"
-│                                checks, @Transactional
+├── services                     business logic, validation, @PreAuthorize rules, @Transactional
 ├── facade                       GymFacade: single entry point, delegates to the services
+├── health                       the custom health indicators
+├── metrics                      GymMetrics, ActiveUsersMetrics
 ├── util                         UsernameGenerator, PasswordGenerator
 └── web
-    ├── config                   WebConfig (Spring MVC), OpenApiConfig (API-wide Swagger definitions)
-    ├── auth                     reads the Basic Authorization header into Credentials
+    ├── config                   OpenApiConfig (API-wide Swagger definitions)
     ├── controller               the REST controllers
     ├── dto                      request records (with validation) and response records
     ├── mapper                   WebMapper: requests → facade inputs, entities → responses
@@ -245,14 +303,26 @@ entity classes, and fields such as passwords can't leak by accident.
 
 ## Tests
 
-- **Unit tests** (Mockito) for the services, the facade, the generators, the Basic auth parsing, the mapper,
-  the request validation and the logging filters.
+- **Unit tests** (Mockito) for the services, the facade, the generators, the mapper, the request validation,
+  the logging filters, the health indicators, the metrics, and the security services.
 - **Controller unit tests** (`web.controller.unit`) test each controller with a mocked facade, for successful
   and failing requests.
 - **DAO tests** run every query against H2.
-- **`ServiceAuthenticationIntegrationTest`** calls the services directly and shows that every operation
-  rejects wrong credentials and other users' profiles without changing the database.
+- **`SecurityIntegrationTest`** attacks the application over HTTP: missing, tampered, expired, forged and revoked
+  tokens, brute force, logout, CORS, and passwords or tokens in the logs.
+- **`ServiceAuthenticationIntegrationTest`** calls the services directly and shows that they reject anonymous
+  callers, the wrong role and other users' profiles without changing the database.
 - **Integration tests** send HTTP requests through the whole application against H2:
-  `RestApiIntegrationTest` (successful paths), `ErrorHandlingIntegrationTest` (every error status) and
-  `LoggingIntegrationTest` (one transaction id across all log lines of a request).
+  `RestApiIntegrationTest` (successful paths), `ErrorHandlingIntegrationTest` (every error status),
+  `LoggingIntegrationTest`, `ActuatorIntegrationTest` and `PrometheusIntegrationTest`.
+- **`ProfilesTest`** loads the real configuration of every environment.
 - **`ApiDocumentationTest`** checks that the Swagger annotations are complete and agree with the code.
+
+## Known limitations
+
+- Failed-login counts and revoked tokens are kept in memory: they are lost on restart and not shared between
+  instances. Running several instances would need a shared store such as Redis.
+- Existing tokens stay valid after a password change, until they expire or the user logs out.
+- Schema changes to an existing database aren't handled: `CREATE TABLE IF NOT EXISTS` skips existing tables. A
+  migration tool such as Flyway would solve this.
+- There is no Swagger UI yet; adding `springdoc-openapi-starter-webmvc-ui` would provide it.

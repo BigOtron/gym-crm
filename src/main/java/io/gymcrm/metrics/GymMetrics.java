@@ -36,6 +36,7 @@ public class GymMetrics {
         registrations(TRAINER);
         logins("success");
         logins("failure");
+        logins("blocked");
     }
 
     public void userRegistered(String role) {
@@ -50,11 +51,15 @@ public class GymMetrics {
         logins("failure").increment();
     }
 
-    /** Credentials rejected on any operation; {@code role} is the role that was required. */
-    public void authenticationFailed(String role) {
+    public void loginBlocked() {
+        logins("blocked").increment();
+    }
+
+    /** A request rejected for its credentials; {@code source} is "login", "password-change" or "token". */
+    public void authenticationFailed(String source) {
         Counter.builder(AUTHENTICATION_FAILURES)
                 .description("Requests rejected because of wrong or missing credentials")
-                .tag("role", role)
+                .tag("source", source)
                 .register(registry)
                 .increment();
     }

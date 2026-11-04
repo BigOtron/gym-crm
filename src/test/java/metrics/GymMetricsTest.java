@@ -22,6 +22,7 @@ class GymMetricsTest {
         assertEquals(0, count(GymMetrics.REGISTRATIONS, "role", "trainer"));
         assertEquals(0, count(GymMetrics.LOGINS, "result", "success"));
         assertEquals(0, count(GymMetrics.LOGINS, "result", "failure"));
+        assertEquals(0, count(GymMetrics.LOGINS, "result", "blocked"));
     }
 
     @Test
@@ -30,12 +31,12 @@ class GymMetricsTest {
         metrics.userRegistered("trainee");
         metrics.userRegistered("trainer");
         metrics.loginFailed();
-        metrics.authenticationFailed("trainee");
+        metrics.authenticationFailed("login");
 
         assertEquals(2, count(GymMetrics.REGISTRATIONS, "role", "trainee"));
         assertEquals(1, count(GymMetrics.REGISTRATIONS, "role", "trainer"));
         assertEquals(1, count(GymMetrics.LOGINS, "result", "failure"));
-        assertEquals(1, count(GymMetrics.AUTHENTICATION_FAILURES, "role", "trainee"));
+        assertEquals(1, count(GymMetrics.AUTHENTICATION_FAILURES, "source", "login"));
     }
 
     @Test

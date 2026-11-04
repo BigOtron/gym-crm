@@ -23,8 +23,8 @@ public class RestCallLoggingFilter extends OncePerRequestFilter {
 
     private static final int MAX_BODY = 2000;
 
-    /** {@code "password":"x"}, {@code "oldPassword":"x"}, {@code "newPassword":"x"} → {@code "...":"***"} */
-    private static final Pattern PASSWORD = Pattern.compile("(\"(?:password|oldPassword|newPassword)\"\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"");
+    /** The values of password and token fields in JSON bodies → {@code "...":"***"} */
+    private static final Pattern PASSWORD = Pattern.compile("(\"(?:password|oldPassword|newPassword|token)\"\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"");
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

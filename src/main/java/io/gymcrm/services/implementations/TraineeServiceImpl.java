@@ -3,7 +3,6 @@ package io.gymcrm.services.implementations;
 import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dto.CreatedProfile;
-import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
@@ -12,13 +11,15 @@ import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.metrics.GymMetrics;
-import io.gymcrm.services.AuthenticationService;
+import io.gymcrm.security.JwtTokenService;
+import io.gymcrm.security.Role;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,31 +29,29 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static io.gymcrm.services.Access.requireOwnProfile;
 import static io.gymcrm.services.Validation.requireText;
 import static io.gymcrm.services.Validation.requireValue;
 
 @Slf4j
 @Service
 @Transactional
+@PreAuthorize("isAuthenticated()")
 public class TraineeServiceImpl implements TraineeService {
 
+    /** Only the trainee who owns the profile may change it. */
+    private static final String OWNER = "hasRole('TRAINEE') and #username == authentication.name";
+
     private TraineeDao traineeDao;
-    private AuthenticationService authenticationService;
     private GymMetrics metrics;
     private TrainerDao trainerDao;
     private UsernameGenerator usernameGenerator;
     private PasswordGenerator passwordGenerator;
     private PasswordEncoder passwordEncoder;
+    private JwtTokenService tokenService;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
         this.metrics = metrics;
-    }
-
-    @Autowired
-    public void setAuthenticationService(AuthenticationService authenticationService) {
-        this.authenticationService = authenticationService;
     }
 
     @Autowired
@@ -71,6 +70,11 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Autowired
+    public void setTokenService(JwtTokenService tokenService) {
+        this.tokenService = tokenService;
+    }
+
+    @Autowired
     public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
     }
@@ -81,6 +85,7 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
+    @PreAuthorize("permitAll()")
     public CreatedProfile<Trainee> create(TraineeRegistration registration) {
         Objects.requireNonNull(registration, "registration must not be null");
         String firstName = requireText(registration.firstName(), "First name");
@@ -98,30 +103,19 @@ public class TraineeServiceImpl implements TraineeService {
         Trainee created = traineeDao.save(trainee);
         log.info("Trainee created: {} (id {})", user.getUsername(), created.getId());
         metrics.userRegistered(GymMetrics.TRAINEE);
-        return new CreatedProfile<>(created, password);
+        return new CreatedProfile<>(created, password, tokenService.issue(user.getUsername(), Role.TRAINEE));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Trainee getByUsername(Credentials auth, String username) {
-        authenticationService.authenticate(auth);
+    public Trainee getByUsername(String username) {
         log.debug("Selecting trainee by username {}", username);
         return find(username);
     }
 
     @Override
-    public void changePassword(Credentials auth, String newPassword) {
-        authenticationService.authenticateTrainee(auth);
-        String username = auth.username();
-        String password = requireText(newPassword, "New password");
-        find(username).getUser().setPassword(passwordEncoder.encode(password));
-        log.info("Trainee {} changed password", username);
-    }
-
-    @Override
-    public Trainee update(Credentials auth, String username, TraineeUpdate update) {
-        authenticationService.authenticateTrainee(auth);
-        requireOwnProfile(auth, username);
+    @PreAuthorize(OWNER)
+    public Trainee update(String username, TraineeUpdate update) {
         Objects.requireNonNull(update, "update must not be null");
         String firstName = requireText(update.firstName(), "First name");
         String lastName = requireText(update.lastName(), "Last name");
@@ -138,9 +132,8 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public void setActive(Credentials auth, String username, boolean active) {
-        authenticationService.authenticateTrainee(auth);
-        requireOwnProfile(auth, username);
+    @PreAuthorize(OWNER)
+    public void setActive(String username, boolean active) {
         User user = find(username).getUser();
         String state = active ? "active" : "inactive";
         if (user.isActive() == active) {
@@ -152,9 +145,8 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public void delete(Credentials auth, String username) {
-        authenticationService.authenticateTrainee(auth);
-        requireOwnProfile(auth, username);
+    @PreAuthorize(OWNER)
+    public void delete(String username) {
         Trainee trainee = find(username);
         int trainings = trainee.getTrainings().size();
         traineeDao.delete(trainee);
@@ -162,9 +154,8 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Override
-    public List<Trainer> updateTrainers(Credentials auth, String username, List<String> trainerUsernames) {
-        authenticationService.authenticateTrainee(auth);
-        requireOwnProfile(auth, username);
+    @PreAuthorize(OWNER)
+    public List<Trainer> updateTrainers(String username, List<String> trainerUsernames) {
         Objects.requireNonNull(trainerUsernames, "trainerUsernames must not be null");
         Set<String> requested = new LinkedHashSet<>(trainerUsernames);
         Trainee trainee = find(username);

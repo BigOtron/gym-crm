@@ -25,7 +25,10 @@ class LoggingIntegrationTest extends WebTestBase {
         mvc.perform(get("/api/training-types").header("Authorization", john))
                 .andExpect(header().string(TransactionId.HEADER, org.hamcrest.Matchers.matchesPattern("[0-9a-f-]{36}")));
         // Also for errors that never reach a controller.
-        mvc.perform(get("/api/nothing-here"))
+        mvc.perform(get("/api/training-types"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().exists(TransactionId.HEADER));
+        mvc.perform(get("/api/nothing-here").header("Authorization", john))
                 .andExpect(status().isNotFound())
                 .andExpect(header().exists(TransactionId.HEADER));
     }

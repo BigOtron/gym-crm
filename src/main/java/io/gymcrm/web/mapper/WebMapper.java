@@ -1,5 +1,6 @@
 package io.gymcrm.web.mapper;
 
+import io.gymcrm.dto.IssuedToken;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeTrainingCriteria;
@@ -14,6 +15,7 @@ import io.gymcrm.entities.TrainingType;
 import io.gymcrm.entities.User;
 import io.gymcrm.web.dto.CredentialsResponse;
 import io.gymcrm.web.dto.NewTrainingRequest;
+import io.gymcrm.web.dto.TokenResponse;
 import io.gymcrm.web.dto.TraineeProfileResponse;
 import io.gymcrm.web.dto.TraineeRegistrationRequest;
 import io.gymcrm.web.dto.TraineeSummary;
@@ -68,11 +70,14 @@ public final class WebMapper {
     }
 
     /**
-     * {@code password} is the generated plain password from {@link io.gymcrm.dto.CreatedProfile}:
-     * the user entity only holds its hash.
+     * The generated plain password comes from {@code CreatedProfile}: the user entity only holds its hash.
      */
-    public static CredentialsResponse toCredentials(User user, String password) {
-        return new CredentialsResponse(user.getUsername(), password);
+    public static CredentialsResponse toCredentials(User user, String password, IssuedToken token) {
+        return new CredentialsResponse(user.getUsername(), password, token.token());
+    }
+
+    public static TokenResponse toTokenResponse(IssuedToken token) {
+        return new TokenResponse(token.token(), "Bearer", token.expiresInSeconds());
     }
 
     public static TrainingTypeResponse toResponse(TrainingType type) {

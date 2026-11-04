@@ -1,13 +1,13 @@
 package web.controller.unit;
 
 import io.gymcrm.dto.CreatedProfile;
+import io.gymcrm.dto.IssuedToken;
 import io.gymcrm.dto.TrainerRegistration;
 import io.gymcrm.dto.TrainerTrainingCriteria;
 import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.exceptions.ConflictException;
-import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.facade.GymFacade;
 import io.gymcrm.web.controller.TrainerController;
@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -35,8 +36,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static support.ControllerTestSupport.ANNA;
-import static support.ControllerTestSupport.basic;
 import static support.ControllerTestSupport.mockMvc;
 import static support.TestData.YOGA;
 import static support.TestData.trainee;
@@ -56,7 +55,7 @@ class TrainerControllerTest {
     }
 
     private static MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder request, String body) {
-        return request.header("Authorization", basic(ANNA)).contentType(MediaType.APPLICATION_JSON).content(body);
+        return request.contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
     private static Trainer anna() {
@@ -70,13 +69,13 @@ class TrainerControllerTest {
     @Test
     void register() throws Exception {
         when(facade.createTrainer(new TrainerRegistration("Anna", "Lee", 6L)))
-                .thenReturn(new CreatedProfile<>(trainer("Anna.Lee", "$2a$hash", YOGA), "generated1"));
+                .thenReturn(new CreatedProfile<>(trainer("Anna.Lee", "$2a$hash", YOGA), "generated1", new IssuedToken("jwt-token", 3600)));
 
         mvc.perform(post("/api/trainers").contentType(MediaType.APPLICATION_JSON).content("""
                         {"firstName":"Anna","lastName":"Lee","specializationId":6}"""))
                 .andExpect(status().isCreated())
                 .andExpect(content().json("""
-                        {"username":"Anna.Lee","password":"generated1"}""", true));
+                        {"username":"Anna.Lee","password":"generated1","token":"jwt-token"}""", true));
     }
 
     @Test
@@ -103,9 +102,9 @@ class TrainerControllerTest {
 
     @Test
     void getProfile() throws Exception {
-        when(facade.getTrainerByUsername(ANNA, "Anna.Lee")).thenReturn(anna());
+        when(facade.getTrainerByUsername("Anna.Lee")).thenReturn(anna());
 
-        mvc.perform(get("/api/trainers/Anna.Lee").header("Authorization", basic(ANNA)))
+        mvc.perform(get("/api/trainers/Anna.Lee"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"username":"Anna.Lee","firstName":"Anna","lastName":"Lee",
@@ -115,26 +114,17 @@ class TrainerControllerTest {
 
     @Test
     void getUnknownProfile() throws Exception {
-        when(facade.getTrainerByUsername(ANNA, "Nobody")).thenThrow(new NotFoundException("Trainer not found: Nobody"));
+        when(facade.getTrainerByUsername("Nobody")).thenThrow(new NotFoundException("Trainer not found: Nobody"));
 
-        mvc.perform(get("/api/trainers/Nobody").header("Authorization", basic(ANNA)))
+        mvc.perform(get("/api/trainers/Nobody"))
                 .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void getProfileWithMalformedHeader() throws Exception {
-        mvc.perform(get("/api/trainers/Anna.Lee").header("Authorization", "Basic not-base64!"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.detail").value("Malformed Basic authentication header"));
-
-        verifyNoInteractions(facade);
     }
 
     // 9. Update
 
     @Test
     void updateIgnoresSpecialization() throws Exception {
-        when(facade.updateTrainer(ANNA, "Anna.Lee", new TrainerUpdate("Ann", "Lee", true))).thenReturn(anna());
+        when(facade.updateTrainer("Anna.Lee", new TrainerUpdate("Ann", "Lee", true))).thenReturn(anna());
 
         mvc.perform(json(put("/api/trainers/Anna.Lee"), """
                         {"firstName":"Ann","lastName":"Lee","specializationId":1,"isActive":true}"""))
@@ -155,7 +145,7 @@ class TrainerControllerTest {
 
     @Test
     void updateSomeoneElsesProfile() throws Exception {
-        when(facade.updateTrainer(any(), any(), any())).thenThrow(new ForbiddenException("You can only change your own profile"));
+        when(facade.updateTrainer(any(), any())).thenThrow(new AccessDeniedException("You can only change your own profile"));
 
         mvc.perform(json(put("/api/trainers/David.Brown"), """
                         {"firstName":"David","lastName":"Brown","isActive":true}"""))
@@ -174,10 +164,9 @@ class TrainerControllerTest {
         training.setTrainingDate(LocalDate.of(2026, 9, 20));
         training.setTrainingDuration(45);
         var criteria = new TrainerTrainingCriteria(LocalDate.of(2026, 9, 1), null, "Smith");
-        when(facade.getTrainerTrainings(ANNA, "Anna.Lee", criteria)).thenReturn(List.of(training));
+        when(facade.getTrainerTrainings("Anna.Lee", criteria)).thenReturn(List.of(training));
 
-        mvc.perform(get("/api/trainers/Anna.Lee/trainings").header("Authorization", basic(ANNA))
-                        .param("from", "2026-09-01").param("traineeName", "Smith"))
+        mvc.perform(get("/api/trainers/Anna.Lee/trainings").param("from", "2026-09-01").param("traineeName", "Smith"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         [{"trainingName":"Evening yoga","trainingDate":"2026-09-20","trainingType":"Yoga",
@@ -186,8 +175,7 @@ class TrainerControllerTest {
 
     @Test
     void trainingsWithReversedPeriod() throws Exception {
-        mvc.perform(get("/api/trainers/Anna.Lee/trainings").header("Authorization", basic(ANNA))
-                        .param("from", "2026-09-30").param("to", "2026-09-01"))
+        mvc.perform(get("/api/trainers/Anna.Lee/trainings").param("from", "2026-09-30").param("to", "2026-09-01"))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(facade);
@@ -201,13 +189,13 @@ class TrainerControllerTest {
                         {"isActive":false}"""))
                 .andExpect(status().isOk());
 
-        verify(facade).setTrainerActive(ANNA, "Anna.Lee", false);
+        verify(facade).setTrainerActive("Anna.Lee", false);
     }
 
     @Test
     void deactivateWhenAlreadyInactive() throws Exception {
         doThrow(new ConflictException("Trainer Anna.Lee is already inactive"))
-                .when(facade).setTrainerActive(ANNA, "Anna.Lee", false);
+                .when(facade).setTrainerActive("Anna.Lee", false);
 
         mvc.perform(json(patch("/api/trainers/Anna.Lee/status"), """
                         {"isActive":false}"""))
@@ -216,8 +204,8 @@ class TrainerControllerTest {
 
     @Test
     void deactivateSomeoneElse() throws Exception {
-        doThrow(new ForbiddenException("You can only change your own profile"))
-                .when(facade).setTrainerActive(ANNA, "David.Brown", false);
+        doThrow(new AccessDeniedException("You can only change your own profile"))
+                .when(facade).setTrainerActive("David.Brown", false);
 
         mvc.perform(json(patch("/api/trainers/David.Brown/status"), """
                         {"isActive":false}"""))
