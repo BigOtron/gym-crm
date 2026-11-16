@@ -10,6 +10,7 @@ import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.services.TrainerService;
@@ -30,6 +31,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Calls the services directly, not through the facade, to show that authentication can't be skipped:
+ * every operation except creating a profile rejects wrong credentials, changes to someone else's
+ * profile are forbidden, and in both cases the database stays unchanged.
+ */
 @SpringJUnitConfig(AppConfig.class)
 class ServiceAuthenticationIntegrationTest {
 
@@ -59,13 +65,14 @@ class ServiceAuthenticationIntegrationTest {
             jdbc.update("delete from " + table);
         }
         Trainee trainee = traineeService.create(new TraineeRegistration("John", "Smith", null, "Tashkent"));
-        Trainer trainer = trainerService.create(new TrainerRegistration("Anna", "Lee", "Yoga"));
+        Trainer trainer = trainerService.create(new TrainerRegistration("Anna", "Lee", 6L));
         john = new Credentials(trainee.getUser().getUsername(), trainee.getUser().getPassword());
         anna = new Credentials(trainer.getUser().getUsername(), trainer.getUser().getPassword());
         trainingService.create(john, new NewTraining(john.username(), anna.username(), "Yoga 1",
                 LocalDate.of(2026, 9, 1), 60));
     }
 
+    /** A snapshot of everything that could be changed, to compare before and after. */
     private List<Map<String, Object>> database() {
         return List.of(
                 Map.of("users", jdbc.queryForList("select * from users order by id")),
@@ -73,6 +80,12 @@ class ServiceAuthenticationIntegrationTest {
                 Map.of("trainer", jdbc.queryForList("select * from trainer order by id")),
                 Map.of("training", jdbc.queryForList("select * from training order by id")),
                 Map.of("links", jdbc.queryForList("select * from trainee_trainer order by trainee_id, trainer_id")));
+    }
+
+    private void assertForbiddenWithoutChanges(Executable operation) {
+        List<Map<String, Object>> before = database();
+        assertThrows(ForbiddenException.class, operation);
+        assertEquals(before, database(), "the database must not change");
     }
 
     private void assertRejectedWithoutChanges(Executable operation) {
@@ -87,10 +100,11 @@ class ServiceAuthenticationIntegrationTest {
 
         assertRejectedWithoutChanges(() -> traineeService.getByUsername(wrong, john.username()));
         assertRejectedWithoutChanges(() -> traineeService.changePassword(wrong, "hacked"));
-        assertRejectedWithoutChanges(() -> traineeService.update(wrong, new TraineeUpdate("Hacked", "Smith", null, null)));
-        assertRejectedWithoutChanges(() -> traineeService.toggleActive(wrong));
-        assertRejectedWithoutChanges(() -> traineeService.delete(wrong));
-        assertRejectedWithoutChanges(() -> traineeService.updateTrainers(wrong, List.of()));
+        assertRejectedWithoutChanges(() -> traineeService.update(wrong, john.username(),
+                new TraineeUpdate("Hacked", "Smith", null, null, true)));
+        assertRejectedWithoutChanges(() -> traineeService.setActive(wrong, john.username(), false));
+        assertRejectedWithoutChanges(() -> traineeService.delete(wrong, john.username()));
+        assertRejectedWithoutChanges(() -> traineeService.updateTrainers(wrong, john.username(), List.of()));
     }
 
     @Test
@@ -99,8 +113,9 @@ class ServiceAuthenticationIntegrationTest {
 
         assertRejectedWithoutChanges(() -> trainerService.getByUsername(wrong, anna.username()));
         assertRejectedWithoutChanges(() -> trainerService.changePassword(wrong, "hacked"));
-        assertRejectedWithoutChanges(() -> trainerService.update(wrong, new TrainerUpdate("Hacked", "Lee", "Fitness")));
-        assertRejectedWithoutChanges(() -> trainerService.toggleActive(wrong));
+        assertRejectedWithoutChanges(() -> trainerService.update(wrong, anna.username(),
+                new TrainerUpdate("Hacked", "Lee", true)));
+        assertRejectedWithoutChanges(() -> trainerService.setActive(wrong, anna.username(), false));
         assertRejectedWithoutChanges(() -> trainerService.getNotAssignedToTrainee(wrong, john.username()));
     }
 
@@ -114,13 +129,14 @@ class ServiceAuthenticationIntegrationTest {
                 TraineeTrainingCriteria.none()));
         assertRejectedWithoutChanges(() -> trainingService.getTrainerTrainings(wrong, anna.username(),
                 TrainerTrainingCriteria.none()));
+        assertRejectedWithoutChanges(() -> trainingService.getTrainingTypes(wrong));
     }
 
     @Test
     void missingOrIncompleteCredentialsAreRejected() {
-        assertRejectedWithoutChanges(() -> traineeService.delete(null));
-        assertRejectedWithoutChanges(() -> traineeService.delete(new Credentials(john.username(), null)));
-        assertRejectedWithoutChanges(() -> traineeService.delete(new Credentials(null, john.password())));
+        assertRejectedWithoutChanges(() -> traineeService.delete(null, john.username()));
+        assertRejectedWithoutChanges(() -> traineeService.delete(new Credentials(john.username(), null), john.username()));
+        assertRejectedWithoutChanges(() -> traineeService.delete(new Credentials(null, john.password()), john.username()));
         assertRejectedWithoutChanges(() -> trainerService.getByUsername(null, anna.username()));
     }
 
@@ -131,18 +147,36 @@ class ServiceAuthenticationIntegrationTest {
 
     @Test
     void roleSpecificOperationsRejectTheOtherRole() {
-        assertRejectedWithoutChanges(() -> traineeService.toggleActive(anna));
-        assertRejectedWithoutChanges(() -> traineeService.delete(anna));
-        assertRejectedWithoutChanges(() -> trainerService.toggleActive(john));
+        // Correct password, wrong role: a trainer can't use trainee operations on their own account and vice versa.
+        assertRejectedWithoutChanges(() -> traineeService.setActive(anna, anna.username(), false));
+        assertRejectedWithoutChanges(() -> traineeService.delete(anna, anna.username()));
+        assertRejectedWithoutChanges(() -> trainerService.setActive(john, john.username(), false));
         assertRejectedWithoutChanges(() -> trainerService.changePassword(john, "hacked"));
     }
 
     @Test
-    void outsiderCantAddSomeoneElsesTraining() {
-        Trainer david = trainerService.create(new TrainerRegistration("David", "Brown", "Fitness"));
+    void someoneElsesProfileCantBeChanged() {
+        Trainee maria = traineeService.create(new TraineeRegistration("Maria", "Garcia", null, null));
+        Credentials mariaCredentials = new Credentials(maria.getUser().getUsername(), maria.getUser().getPassword());
+        Trainer david = trainerService.create(new TrainerRegistration("David", "Brown", 1L));
         Credentials davidCredentials = new Credentials(david.getUser().getUsername(), david.getUser().getPassword());
 
-        assertRejectedWithoutChanges(() -> trainingService.create(davidCredentials, new NewTraining(john.username(),
+        assertForbiddenWithoutChanges(() -> traineeService.delete(mariaCredentials, john.username()));
+        assertForbiddenWithoutChanges(() -> traineeService.update(mariaCredentials, john.username(),
+                new TraineeUpdate("Hacked", "Smith", null, null, true)));
+        assertForbiddenWithoutChanges(() -> traineeService.setActive(mariaCredentials, john.username(), false));
+        assertForbiddenWithoutChanges(() -> traineeService.updateTrainers(mariaCredentials, john.username(), List.of()));
+        assertForbiddenWithoutChanges(() -> trainerService.update(davidCredentials, anna.username(),
+                new TrainerUpdate("Hacked", "Lee", true)));
+        assertForbiddenWithoutChanges(() -> trainerService.setActive(davidCredentials, anna.username(), false));
+    }
+
+    @Test
+    void outsiderCantAddSomeoneElsesTraining() {
+        Trainer david = trainerService.create(new TrainerRegistration("David", "Brown", 1L));
+        Credentials davidCredentials = new Credentials(david.getUser().getUsername(), david.getUser().getPassword());
+
+        assertForbiddenWithoutChanges(() -> trainingService.create(davidCredentials, new NewTraining(john.username(),
                 anna.username(), "Yoga 2", LocalDate.of(2026, 9, 2), 60)));
     }
 
@@ -156,8 +190,10 @@ class ServiceAuthenticationIntegrationTest {
 
     @Test
     void deactivatedUsersCanStillAuthenticate() {
-        traineeService.toggleActive(john);
+        // Needed so that they can activate themselves again.
+        traineeService.setActive(john, john.username(), false);
+        traineeService.setActive(john, john.username(), true);
 
-        assertEquals(true, traineeService.toggleActive(john));
+        assertTrue(traineeService.getByUsername(john, john.username()).getUser().isActive());
     }
 }

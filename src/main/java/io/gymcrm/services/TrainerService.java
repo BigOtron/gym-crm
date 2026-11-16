@@ -8,9 +8,10 @@ import io.gymcrm.entities.Trainer;
 import java.util.List;
 
 /**
- * Every method except {@link #create} authenticates its {@code auth} credentials first and throws
- * {@link io.gymcrm.exceptions.AuthenticationException} if they don't match. Methods that change a
- * profile act on the authenticated trainer's own profile.
+ * Every method except {@link #create} authenticates {@code auth} first and throws
+ * {@link io.gymcrm.exceptions.AuthenticationException} if it doesn't match. Methods that change a
+ * profile only accept the profile's owner and throw {@link io.gymcrm.exceptions.ForbiddenException}
+ * for anyone else.
  */
 public interface TrainerService {
     Trainer create(TrainerRegistration registration);
@@ -18,12 +19,13 @@ public interface TrainerService {
     /** Any authenticated user can read a trainer's profile. */
     Trainer getByUsername(Credentials auth, String username);
 
+    /** Changes the authenticated trainer's own password. */
     void changePassword(Credentials auth, String newPassword);
 
-    Trainer update(Credentials auth, TrainerUpdate update);
+    Trainer update(Credentials auth, String username, TrainerUpdate update);
 
-    /** Flips the active flag and returns the new value. */
-    boolean toggleActive(Credentials auth);
+    /** @throws io.gymcrm.exceptions.ConflictException if the trainer is already in that state */
+    void setActive(Credentials auth, String username, boolean active);
 
     /** Active trainers that are not in the trainee's trainers list; any authenticated user can ask. */
     List<Trainer> getNotAssignedToTrainee(Credentials auth, String traineeUsername);

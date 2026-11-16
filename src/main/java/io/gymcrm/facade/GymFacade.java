@@ -11,6 +11,7 @@ import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
+import io.gymcrm.entities.TrainingType;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.services.TrainerService;
@@ -20,8 +21,8 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Single entry point to all operations. Authentication is done by the services themselves,
- * so it can't be skipped by calling a service directly.
+ * Single entry point to all operations. Authentication and the "own profile only" rule are enforced
+ * by the services themselves, so they can't be skipped by calling a service directly.
  */
 @Component
 public class GymFacade {
@@ -41,17 +42,17 @@ public class GymFacade {
         this.trainingService = trainingService;
     }
 
-    // 1, 2. Create profiles (no authentication)
-
-    public Trainer createTrainer(TrainerRegistration registration) {
-        return trainerService.create(registration);
-    }
+    // Registration (no authentication)
 
     public Trainee createTrainee(TraineeRegistration registration) {
         return traineeService.create(registration);
     }
 
-    // 3, 4. Username and password matching
+    public Trainer createTrainer(TrainerRegistration registration) {
+        return trainerService.create(registration);
+    }
+
+    // Credentials
 
     public boolean traineeCredentialsMatch(Credentials credentials) {
         return authenticationService.traineeCredentialsMatch(credentials);
@@ -61,53 +62,65 @@ public class GymFacade {
         return authenticationService.trainerCredentialsMatch(credentials);
     }
 
-    // 5, 6. Select profile by username
-
-    public Trainer getTrainerByUsername(Credentials auth, String username) {
-        return trainerService.getByUsername(auth, username);
+    public void login(Credentials auth) {
+        authenticationService.authenticate(auth);
     }
+
+    /**
+     * Works for trainees and trainers; the old password in {@code auth} authenticates the call.
+     * The services authenticate again for their role, so this only decides which one to call.
+     */
+    public void changePassword(Credentials auth, String newPassword) {
+        // Without assuming a role first, so a wrong password is logged as a failed login of the user.
+        authenticationService.authenticate(auth);
+        if (authenticationService.traineeCredentialsMatch(auth)) {
+            traineeService.changePassword(auth, newPassword);
+        } else {
+            trainerService.changePassword(auth, newPassword);
+        }
+    }
+
+    // Trainee
 
     public Trainee getTraineeByUsername(Credentials auth, String username) {
         return traineeService.getByUsername(auth, username);
     }
 
-    // 7, 8. Password change
-
-    public void changeTraineePassword(Credentials auth, String newPassword) {
-        traineeService.changePassword(auth, newPassword);
+    public Trainee updateTrainee(Credentials auth, String username, TraineeUpdate update) {
+        return traineeService.update(auth, username, update);
     }
 
-    public void changeTrainerPassword(Credentials auth, String newPassword) {
-        trainerService.changePassword(auth, newPassword);
+    public void setTraineeActive(Credentials auth, String username, boolean active) {
+        traineeService.setActive(auth, username, active);
     }
 
-    // 9, 10. Update profile
-
-    public Trainer updateTrainer(Credentials auth, TrainerUpdate update) {
-        return trainerService.update(auth, update);
+    public void deleteTrainee(Credentials auth, String username) {
+        traineeService.delete(auth, username);
     }
 
-    public Trainee updateTrainee(Credentials auth, TraineeUpdate update) {
-        return traineeService.update(auth, update);
+    public List<Trainer> getTrainersNotAssignedToTrainee(Credentials auth, String traineeUsername) {
+        return trainerService.getNotAssignedToTrainee(auth, traineeUsername);
     }
 
-    // 11, 12. Activate / de-activate (each call flips the flag)
-
-    public boolean toggleTraineeActive(Credentials auth) {
-        return traineeService.toggleActive(auth);
+    public List<Trainer> updateTraineeTrainers(Credentials auth, String username, List<String> trainerUsernames) {
+        return traineeService.updateTrainers(auth, username, trainerUsernames);
     }
 
-    public boolean toggleTrainerActive(Credentials auth) {
-        return trainerService.toggleActive(auth);
+    // Trainer
+
+    public Trainer getTrainerByUsername(Credentials auth, String username) {
+        return trainerService.getByUsername(auth, username);
     }
 
-    // 13. Delete trainee profile (cascades to trainings)
-
-    public void deleteTrainee(Credentials auth) {
-        traineeService.delete(auth);
+    public Trainer updateTrainer(Credentials auth, String username, TrainerUpdate update) {
+        return trainerService.update(auth, username, update);
     }
 
-    // 14, 15. Trainings lists by criteria
+    public void setTrainerActive(Credentials auth, String username, boolean active) {
+        trainerService.setActive(auth, username, active);
+    }
+
+    // Trainings
 
     public List<Training> getTraineeTrainings(Credentials auth, String traineeUsername,
                                               TraineeTrainingCriteria criteria) {
@@ -119,21 +132,11 @@ public class GymFacade {
         return trainingService.getTrainerTrainings(auth, trainerUsername, criteria);
     }
 
-    // 16. Add training (by its trainee or its trainer)
-
     public Training addTraining(Credentials auth, NewTraining newTraining) {
         return trainingService.create(auth, newTraining);
     }
 
-    // 17. Trainers not assigned to a trainee
-
-    public List<Trainer> getTrainersNotAssignedToTrainee(Credentials auth, String traineeUsername) {
-        return trainerService.getNotAssignedToTrainee(auth, traineeUsername);
-    }
-
-    // 18. Update trainee's trainers list
-
-    public List<Trainer> updateTraineeTrainers(Credentials auth, List<String> trainerUsernames) {
-        return traineeService.updateTrainers(auth, trainerUsernames);
+    public List<TrainingType> getTrainingTypes(Credentials auth) {
+        return trainingService.getTrainingTypes(auth);
     }
 }

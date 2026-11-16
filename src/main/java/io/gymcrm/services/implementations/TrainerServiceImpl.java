@@ -9,6 +9,7 @@ import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.TrainingType;
 import io.gymcrm.entities.User;
+import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TrainerService;
@@ -22,7 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Objects;
 
+import static io.gymcrm.services.Access.requireOwnProfile;
 import static io.gymcrm.services.Validation.requireText;
+import static io.gymcrm.services.Validation.requireValue;
 
 @Slf4j
 @Service
@@ -71,7 +74,7 @@ public class TrainerServiceImpl implements TrainerService {
         Objects.requireNonNull(registration, "registration must not be null");
         String firstName = requireText(registration.firstName(), "First name");
         String lastName = requireText(registration.lastName(), "Last name");
-        TrainingType specialization = findType(requireText(registration.specialization(), "Specialization"));
+        TrainingType specialization = findType(requireValue(registration.specializationId(), "Specialization"));
         log.debug("Creating trainer {} {} ({})", firstName, lastName, specialization.getTrainingTypeName());
 
         User user = new User(firstName, lastName,
@@ -104,30 +107,34 @@ public class TrainerServiceImpl implements TrainerService {
     }
 
     @Override
-    public Trainer update(Credentials auth, TrainerUpdate update) {
+    public Trainer update(Credentials auth, String username, TrainerUpdate update) {
         authenticationService.authenticateTrainer(auth);
-        String username = auth.username();
+        requireOwnProfile(auth, username);
         Objects.requireNonNull(update, "update must not be null");
         String firstName = requireText(update.firstName(), "First name");
         String lastName = requireText(update.lastName(), "Last name");
-        TrainingType specialization = findType(requireText(update.specialization(), "Specialization"));
+        boolean active = requireValue(update.isActive(), "Is active");
 
         Trainer trainer = find(username);
         trainer.getUser().setFirstName(firstName);
         trainer.getUser().setLastName(lastName);
-        trainer.setSpecialization(specialization);
+        trainer.getUser().setActive(active);
         log.info("Trainer {} updated", username);
         return trainer;
     }
 
     @Override
-    public boolean toggleActive(Credentials auth) {
+    public void setActive(Credentials auth, String username, boolean active) {
         authenticationService.authenticateTrainer(auth);
-        String username = auth.username();
+        requireOwnProfile(auth, username);
         User user = find(username).getUser();
-        user.setActive(!user.isActive());
-        log.info("Trainer {} is now {}", username, user.isActive() ? "active" : "inactive");
-        return user.isActive();
+        String state = active ? "active" : "inactive";
+        if (user.isActive() == active) {
+            log.warn("Trainer {} is already {}", username, state);
+            throw new ConflictException("Trainer " + username + " is already " + state);
+        }
+        user.setActive(active);
+        log.info("Trainer {} is now {}", username, state);
     }
 
     @Override
@@ -148,10 +155,10 @@ public class TrainerServiceImpl implements TrainerService {
         });
     }
 
-    private TrainingType findType(String name) {
-        return trainingTypeDao.findByName(name).orElseThrow(() -> {
-            log.warn("Training type not found: {}", name);
-            return new NotFoundException("Training type not found: " + name);
+    private TrainingType findType(Long id) {
+        return trainingTypeDao.findById(id).orElseThrow(() -> {
+            log.warn("Training type not found: {}", id);
+            return new NotFoundException("Training type not found: " + id);
         });
     }
 }

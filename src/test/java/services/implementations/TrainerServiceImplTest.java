@@ -8,6 +8,8 @@ import io.gymcrm.dto.TrainerRegistration;
 import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.ConflictException;
+import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.implementations.TrainerServiceImpl;
@@ -17,9 +19,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -37,7 +36,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static support.TestData.FITNESS;
 import static support.TestData.YOGA;
 import static support.TestData.trainee;
 import static support.TestData.trainer;
@@ -46,6 +44,7 @@ import static support.TestData.trainer;
 class TrainerServiceImplTest {
 
     private static final Credentials ANNA = new Credentials("Anna.Lee", "secret");
+    private static final Credentials DAVID = new Credentials("David.Brown", "secret");
     private static final AuthenticationException WRONG_PASSWORD = new AuthenticationException("Invalid username or password");
 
     @Mock
@@ -94,12 +93,12 @@ class TrainerServiceImplTest {
 
         @Test
         void generatesCredentialsAndSetsSpecialization() {
-            when(trainingTypeDao.findByName("Yoga")).thenReturn(Optional.of(YOGA));
+            when(trainingTypeDao.findById(6L)).thenReturn(Optional.of(YOGA));
             when(usernameGenerator.generate("Anna", "Lee")).thenReturn("Anna.Lee");
             when(passwordGenerator.generate()).thenReturn("bbbbbbbbbb");
             when(trainerDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            Trainer created = service.create(new TrainerRegistration("Anna", "Lee", "Yoga"));
+            Trainer created = service.create(new TrainerRegistration("Anna", "Lee", 6L));
 
             assertEquals("Anna.Lee", created.getUser().getUsername());
             assertEquals("bbbbbbbbbb", created.getUser().getPassword());
@@ -108,35 +107,22 @@ class TrainerServiceImplTest {
             verifyNoInteractions(authenticationService);
         }
 
-        @ParameterizedTest
-        @NullAndEmptySource
-        @ValueSource(strings = "   ")
-        void rejectsMissingSpecialization(String specialization) {
-            assertThrows(IllegalArgumentException.class,
-                    () -> service.create(new TrainerRegistration("Anna", "Lee", specialization)));
+        @Test
+        void rejectsMissingFields() {
+            assertThrows(IllegalArgumentException.class, () -> service.create(new TrainerRegistration("Anna", "Lee", null)));
+            assertThrows(IllegalArgumentException.class, () -> service.create(new TrainerRegistration(null, "Lee", 6L)));
+            assertThrows(IllegalArgumentException.class, () -> service.create(new TrainerRegistration("Anna", " ", 6L)));
+            assertThrows(NullPointerException.class, () -> service.create(null));
             verifyNoInteractions(trainerDao, usernameGenerator, passwordGenerator);
         }
 
         @Test
-        void rejectsMissingNames() {
-            assertThrows(IllegalArgumentException.class, () -> service.create(new TrainerRegistration(null, "Lee", "Yoga")));
-            assertThrows(IllegalArgumentException.class, () -> service.create(new TrainerRegistration("Anna", "", "Yoga")));
-            verifyNoInteractions(trainerDao, usernameGenerator);
-        }
-
-        @Test
         void rejectsUnknownSpecialization() {
-            when(trainingTypeDao.findByName("Boxing")).thenReturn(Optional.empty());
+            when(trainingTypeDao.findById(99L)).thenReturn(Optional.empty());
 
-            assertThrows(NotFoundException.class, () -> service.create(new TrainerRegistration("Anna", "Lee", "Boxing")));
+            assertThrows(NotFoundException.class, () -> service.create(new TrainerRegistration("Anna", "Lee", 99L)));
             verify(trainerDao, never()).save(any());
             verifyNoInteractions(usernameGenerator, passwordGenerator);
-        }
-
-        @Test
-        void rejectsNullRegistration() {
-            assertThrows(NullPointerException.class, () -> service.create(null));
-            verifyNoInteractions(trainerDao);
         }
     }
 
@@ -200,17 +186,17 @@ class TrainerServiceImplTest {
     class Update {
 
         @Test
-        void changesNamesAndSpecialization() {
+        void changesNamesAndActiveButNotSpecialization() {
             Trainer anna = givenAnna();
-            when(trainingTypeDao.findByName("Fitness")).thenReturn(Optional.of(FITNESS));
 
-            service.update(ANNA, new TrainerUpdate("Ann", "Leigh", "Fitness"));
+            service.update(ANNA, "Anna.Lee", new TrainerUpdate("Ann", "Leigh", false));
 
             assertEquals("Ann", anna.getUser().getFirstName());
             assertEquals("Leigh", anna.getUser().getLastName());
-            assertSame(FITNESS, anna.getSpecialization());
+            assertFalse(anna.getUser().isActive());
+            assertSame(YOGA, anna.getSpecialization());
             assertEquals("Anna.Lee", anna.getUser().getUsername());
-            verify(authenticationService).authenticateTrainer(ANNA);
+            verifyNoInteractions(trainingTypeDao);
         }
 
         @Test
@@ -218,53 +204,68 @@ class TrainerServiceImplTest {
             givenWrongTrainerCredentials();
 
             assertThrows(AuthenticationException.class,
-                    () -> service.update(ANNA, new TrainerUpdate("Ann", "Lee", "Fitness")));
-            verifyNoInteractions(trainerDao, trainingTypeDao);
-        }
-
-        @Test
-        void unknownSpecializationChangesNothing() {
-            when(trainingTypeDao.findByName("Boxing")).thenReturn(Optional.empty());
-
-            assertThrows(NotFoundException.class, () -> service.update(ANNA, new TrainerUpdate("Ann", "Lee", "Boxing")));
+                    () -> service.update(ANNA, "Anna.Lee", new TrainerUpdate("Ann", "Lee", true)));
             verifyNoInteractions(trainerDao);
         }
 
         @Test
-        void rejectsMissingFields() {
-            assertThrows(IllegalArgumentException.class, () -> service.update(ANNA, new TrainerUpdate(null, "Lee", "Yoga")));
-            assertThrows(IllegalArgumentException.class, () -> service.update(ANNA, new TrainerUpdate("Ann", "Lee", null)));
-            assertThrows(NullPointerException.class, () -> service.update(ANNA, null));
+        void someoneElsesProfileIsForbidden() {
+            assertThrows(ForbiddenException.class,
+                    () -> service.update(DAVID, "Anna.Lee", new TrainerUpdate("Ann", "Lee", true)));
+            verifyNoInteractions(trainerDao);
+        }
+
+        @Test
+        void rejectsMissingRequiredFields() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.update(ANNA, "Anna.Lee", new TrainerUpdate(null, "Lee", true)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.update(ANNA, "Anna.Lee", new TrainerUpdate("Ann", "Lee", null)));
+            assertThrows(NullPointerException.class, () -> service.update(ANNA, "Anna.Lee", null));
             verifyNoInteractions(trainerDao);
         }
     }
 
     @Nested
-    class ToggleActive {
+    class SetActive {
 
         @Test
-        void flipsTheFlagEachTime() {
+        void changesTheFlag() {
             Trainer anna = givenAnna();
 
-            assertFalse(service.toggleActive(ANNA));
+            service.setActive(ANNA, "Anna.Lee", false);
+
             assertFalse(anna.getUser().isActive());
-            assertTrue(service.toggleActive(ANNA));
+        }
+
+        @Test
+        void sameStateIsAConflict() {
+            Trainer anna = givenAnna();
+
+            assertThrows(ConflictException.class, () -> service.setActive(ANNA, "Anna.Lee", true));
+            assertTrue(anna.getUser().isActive());
         }
 
         @Test
         void wrongCredentialsChangeNothing() {
             givenWrongTrainerCredentials();
 
-            assertThrows(AuthenticationException.class, () -> service.toggleActive(ANNA));
+            assertThrows(AuthenticationException.class, () -> service.setActive(ANNA, "Anna.Lee", false));
             verifyNoInteractions(trainerDao);
         }
 
         @Test
-        void traineeCredentialsCantToggleATrainer() {
+        void someoneElsesProfileIsForbidden() {
+            assertThrows(ForbiddenException.class, () -> service.setActive(DAVID, "Anna.Lee", false));
+            verifyNoInteractions(trainerDao);
+        }
+
+        @Test
+        void traineeCredentialsCantChangeATrainer() {
             Credentials john = new Credentials("John.Smith", "pw");
             doThrow(WRONG_PASSWORD).when(authenticationService).authenticateTrainer(john);
 
-            assertThrows(AuthenticationException.class, () -> service.toggleActive(john));
+            assertThrows(AuthenticationException.class, () -> service.setActive(john, "John.Smith", false));
             verifyNoInteractions(trainerDao);
         }
     }
