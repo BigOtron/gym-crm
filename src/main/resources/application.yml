@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: gym-crm
+  profiles:
+    default: local
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: 8080
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  endpoint:
+    health:
+      show-components: always
+      show-details: never
+      status:
+        order: DOWN, OUT_OF_SERVICE, WARNING, UP, UNKNOWN
+        http-mapping:
+          WARNING: 200
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+
+info:
+  app:
+    name: Gym CRM
+    description: Trainees, trainers and their trainings
+
+gymcrm:
+  security:
+    jwt:
+      # How long a token stays valid. The signing secret is set per environment.
+      lifetime: 1h
+    login:
+      # Brute-force protection: this many failures in a row block the username for this long.
+      max-failures: 3
+      block-duration: 5m
+  logging:
+    # Servers (stg, prod) keep logs for days, so they add the date.
+    time-format: HH:mm:ss.SSS
+  health:
+    database:
+      max-response-time: 500ms
+
+logging:
+  # Spring Boot's own Logback setup with our pattern (transaction id from the MDC). It writes to the
+  # console, and also to a file when logging.file.name is set (e.g. LOGGING_FILE_NAME in Docker).
+  pattern:
+    console: "%d{${gymcrm.logging.time-format}} %-5level [%X{transactionId:--}] [%thread] %logger{36} - %msg%n"
+    file: "%d{${gymcrm.logging.time-format}} %-5level [%X{transactionId:--}] [%thread] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN

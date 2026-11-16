@@ -1,0 +1,9 @@
+# Only the build files and src/ are needed to build the image.
+.git
+.gradle
+.idea
+build
+logs
+*.iml
+*.pdf
+*.patch

@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:stg-db.gymcrm.internal}:${DB_PORT:5432}/gymcrm_stg
+    username: ${DB_USERNAME:gymcrm_stg}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 15
+
+logging:
+  level:
+    io.gymcrm: INFO
+
+gymcrm:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  logging:
+    time-format: yyyy-MM-dd HH:mm:ss.SSS

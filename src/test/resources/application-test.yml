@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:gymcrm;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    hikari:
+      maximum-pool-size: 5
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+gymcrm:
+  security:
+    jwt:
+      secret: test-only-secret-with-at-least-32-bytes-of-text
+    cors:
+      allowed-origins: http://localhost:3000
+    # BCrypt is slow on purpose; a low strength keeps the tests fast.
+    bcrypt-strength: 4

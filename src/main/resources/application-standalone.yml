@@ -1,0 +1,24 @@
+# All data is lost when the application stops.
+spring:
+  datasource:
+    url: jdbc:h2:mem:gymcrm;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    hikari:
+      maximum-pool-size: 5
+
+logging:
+  level:
+    io.gymcrm: DEBUG
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+gymcrm:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:local-development-only-secret-do-not-use-on-servers}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
