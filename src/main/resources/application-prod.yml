@@ -10,3 +10,7 @@ spring:
 logging:
   level:
     io.gymcrm: INFO
+
+gymcrm:
+  logging:
+    time-format: yyyy-MM-dd HH:mm:ss.SSS

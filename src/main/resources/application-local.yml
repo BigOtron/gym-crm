@@ -1,6 +1,7 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/gymcrm
+    # In Docker, DB_HOST points to the database container instead (see docker-compose.yml).
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/gymcrm
     username: ${DB_USERNAME:gymcrm}
     password: ${DB_PASSWORD:gymcrm}
     hikari:

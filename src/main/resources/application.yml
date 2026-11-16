@@ -47,11 +47,19 @@ info:
     description: Trainees, trainers and their trainings
 
 gymcrm:
+  logging:
+    # Servers (stg, prod) keep logs for days, so they add the date.
+    time-format: HH:mm:ss.SSS
   health:
     database:
       max-response-time: 500ms
 
 logging:
+  # Spring Boot's own Logback setup with our pattern (transaction id from the MDC). It writes to the
+  # console, and also to a file when logging.file.name is set (e.g. LOGGING_FILE_NAME in Docker).
+  pattern:
+    console: "%d{${gymcrm.logging.time-format}} %-5level [%X{transactionId:--}] [%thread] %logger{36} - %msg%n"
+    file: "%d{${gymcrm.logging.time-format}} %-5level [%X{transactionId:--}] [%thread] %logger{36} - %msg%n"
   level:
     root: INFO
     org.springframework: WARN
