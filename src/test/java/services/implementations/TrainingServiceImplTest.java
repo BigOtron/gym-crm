@@ -16,6 +16,8 @@ import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.implementations.TrainingServiceImpl;
+import io.gymcrm.metrics.GymMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -69,9 +71,12 @@ class TrainingServiceImplTest {
 
     private TrainingServiceImpl service;
 
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     @BeforeEach
     void setUp() {
         service = new TrainingServiceImpl();
+        service.setMetrics(new GymMetrics(registry));
         service.setTrainingDao(trainingDao);
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
@@ -110,6 +115,8 @@ class TrainingServiceImplTest {
             assertEquals(DATE, created.getTrainingDate());
             assertEquals(60, created.getTrainingDuration());
             assertTrue(john.getTrainers().contains(anna), "the trainer is added to the trainee's list");
+            assertEquals(1, registry.get(GymMetrics.TRAININGS_ADDED).tag("type", "Yoga").counter().count());
+            assertEquals(60, registry.get(GymMetrics.TRAINING_DURATION).tag("type", "Yoga").summary().totalAmount());
             verify(authenticationService).authenticate(JOHN);
         }
 
@@ -137,6 +144,7 @@ class TrainingServiceImplTest {
                     () -> service.create(david, newTraining(60)));
 
             assertEquals("Only the trainee or the trainer can add a training", e.getMessage());
+            assertTrue(registry.find(GymMetrics.TRAININGS_ADDED).counters().isEmpty(), "nothing counted");
             verifyNoInteractions(traineeDao, trainerDao, trainingDao);
         }
 

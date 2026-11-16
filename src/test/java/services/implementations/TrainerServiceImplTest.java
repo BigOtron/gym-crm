@@ -15,6 +15,8 @@ import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.implementations.TrainerServiceImpl;
 import io.gymcrm.util.PasswordGenerator;
 import io.gymcrm.util.UsernameGenerator;
+import io.gymcrm.metrics.GymMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -67,9 +69,12 @@ class TrainerServiceImplTest {
 
     private TrainerServiceImpl service;
 
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     @BeforeEach
     void setUp() {
         service = new TrainerServiceImpl();
+        service.setMetrics(new GymMetrics(registry));
         service.setTrainerDao(trainerDao);
         service.setTraineeDao(traineeDao);
         service.setTrainingTypeDao(trainingTypeDao);
@@ -105,6 +110,8 @@ class TrainerServiceImplTest {
             assertTrue(created.getUser().isActive());
             assertSame(YOGA, created.getSpecialization());
             verifyNoInteractions(authenticationService);
+            assertEquals(1, registry.get(GymMetrics.REGISTRATIONS).tag("role", "trainer").counter().count());
+            assertEquals(0, registry.get(GymMetrics.REGISTRATIONS).tag("role", "trainee").counter().count());
         }
 
         @Test

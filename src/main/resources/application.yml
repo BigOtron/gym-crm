@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: gym-crm
+  profiles:
+    default: local
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: 8080
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  endpoint:
+    health:
+      show-components: always
+      show-details: never
+      status:
+        order: DOWN, OUT_OF_SERVICE, WARNING, UP, UNKNOWN
+        http-mapping:
+          WARNING: 200
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+
+info:
+  app:
+    name: Gym CRM
+    description: Trainees, trainers and their trainings
+
+gymcrm:
+  health:
+    database:
+      max-response-time: 500ms
+
+logging:
+  level:
+    root: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN

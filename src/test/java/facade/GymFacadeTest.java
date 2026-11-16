@@ -92,12 +92,12 @@ class GymFacadeTest {
         assertTrue(facade.traineeCredentialsMatch(JOHN));
         assertFalse(facade.trainerCredentialsMatch(JOHN));
         facade.login(JOHN);
-        verify(authenticationService).authenticate(JOHN);
+        verify(authenticationService).login(JOHN);
     }
 
     @Test
     void loginWithWrongCredentials() {
-        doThrow(new AuthenticationException("bad")).when(authenticationService).authenticate(JOHN);
+        doThrow(new AuthenticationException("bad")).when(authenticationService).login(JOHN);
 
         assertThrows(AuthenticationException.class, () -> facade.login(JOHN));
     }

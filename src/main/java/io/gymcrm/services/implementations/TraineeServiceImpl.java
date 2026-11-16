@@ -10,6 +10,7 @@ import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.util.PasswordGenerator;
@@ -36,9 +37,15 @@ public class TraineeServiceImpl implements TraineeService {
 
     private TraineeDao traineeDao;
     private AuthenticationService authenticationService;
+    private GymMetrics metrics;
     private TrainerDao trainerDao;
     private UsernameGenerator usernameGenerator;
     private PasswordGenerator passwordGenerator;
+
+    @Autowired
+    public void setMetrics(GymMetrics metrics) {
+        this.metrics = metrics;
+    }
 
     @Autowired
     public void setAuthenticationService(AuthenticationService authenticationService) {
@@ -81,6 +88,7 @@ public class TraineeServiceImpl implements TraineeService {
 
         Trainee created = traineeDao.save(trainee);
         log.info("Trainee created: {} (id {})", user.getUsername(), created.getId());
+        metrics.userRegistered(GymMetrics.TRAINEE);
         return created;
     }
 

@@ -20,10 +20,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * Single entry point to all operations. Authentication and the "own profile only" rule are enforced
- * by the services themselves, so they can't be skipped by calling a service directly.
- */
 @Component
 public class GymFacade {
 
@@ -63,13 +59,9 @@ public class GymFacade {
     }
 
     public void login(Credentials auth) {
-        authenticationService.authenticate(auth);
+        authenticationService.login(auth);
     }
 
-    /**
-     * Works for trainees and trainers; the old password in {@code auth} authenticates the call.
-     * The services authenticate again for their role, so this only decides which one to call.
-     */
     public void changePassword(Credentials auth, String newPassword) {
         // Without assuming a role first, so a wrong password is logged as a failed login of the user.
         authenticationService.authenticate(auth);
@@ -80,7 +72,6 @@ public class GymFacade {
         }
     }
 
-    // Trainee
 
     public Trainee getTraineeByUsername(Credentials auth, String username) {
         return traineeService.getByUsername(auth, username);
@@ -106,7 +97,6 @@ public class GymFacade {
         return traineeService.updateTrainers(auth, username, trainerUsernames);
     }
 
-    // Trainer
 
     public Trainer getTrainerByUsername(Credentials auth, String username) {
         return trainerService.getByUsername(auth, username);
@@ -120,7 +110,6 @@ public class GymFacade {
         trainerService.setActive(auth, username, active);
     }
 
-    // Trainings
 
     public List<Training> getTraineeTrainings(Credentials auth, String traineeUsername,
                                               TraineeTrainingCriteria criteria) {

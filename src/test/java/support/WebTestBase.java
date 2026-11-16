@@ -1,19 +1,15 @@
 package support;
 
-import io.gymcrm.config.AppConfig;
-import io.gymcrm.web.config.WebConfig;
-import io.gymcrm.web.logging.WebFilters;
-import jakarta.servlet.Filter;
+import io.gymcrm.Application;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
@@ -22,15 +18,14 @@ import java.util.Base64;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringJUnitWebConfig(classes = {AppConfig.class, WebConfig.class})
+@SpringBootTest(classes = Application.class)
+@AutoConfigureMockMvc
 public abstract class WebTestBase {
-
-    @Autowired
-    private WebApplicationContext context;
 
     @Autowired
     private DataSource dataSource;
 
+    @Autowired
     protected MockMvc mvc;
 
     protected String john;
@@ -43,9 +38,6 @@ public abstract class WebTestBase {
         for (String table : new String[]{"training", "trainee_trainer", "trainee", "trainer", "users"}) {
             jdbc.update("delete from " + table);
         }
-        mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(WebFilters.all().toArray(Filter[]::new))
-                .build();
 
         john = register("/api/trainees", """
                 {"firstName":"John","lastName":"Smith","dateOfBirth":"1995-04-12","address":"Tashkent"}""");

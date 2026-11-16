@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import support.DaoTestBase;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -110,5 +111,33 @@ class TrainerDaoImplTest extends DaoTestBase {
 
         assertEquals(List.of("Anna.Lee", "David.Brown"),
                 usernames(trainerDao.findNotAssignedToTrainee("John.Smith")));
+    }
+
+    @Test
+    void countActiveTrainersPerTrainingTypeIncludesTypesWithoutTrainers() {
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        persistTrainer("Mia", "Wong", "Mia.Wong", "Yoga");
+        persistTrainer("Old", "Coach", "Old.Coach", "Fitness").getUser().setActive(false);
+        persistTrainee("John", "Smith", "John.Smith");
+        flushAndClear();
+
+        Map<String, Long> counts = trainerDao.countActiveTrainersPerTrainingType();
+
+        assertEquals(List.of("Fitness", "Running", "Heavy lifting", "Pull ups", "Push ups", "Yoga"),
+                List.copyOf(counts.keySet()), "every type, in id order");
+        assertEquals(2L, counts.get("Yoga"));
+        assertEquals(0L, counts.get("Fitness"), "inactive trainers don't count");
+        assertEquals(0L, counts.get("Running"));
+    }
+
+    @Test
+    void countActiveCountsOnlyActiveProfiles() {
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
+        persistTrainer("Old", "Coach", "Old.Coach", "Fitness").getUser().setActive(false);
+        persistTrainee("John", "Smith", "John.Smith");
+        flushAndClear();
+
+        assertEquals(2, trainerDao.countActive());
     }
 }

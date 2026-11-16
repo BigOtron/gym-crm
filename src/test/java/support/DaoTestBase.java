@@ -1,6 +1,6 @@
 package support;
 
-import io.gymcrm.config.AppConfig;
+import io.gymcrm.Application;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
@@ -9,13 +9,13 @@ import io.gymcrm.entities.User;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.BeforeEach;
-import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 
 
-@SpringJUnitConfig(AppConfig.class)
+@SpringBootTest(classes = Application.class)
 @Transactional
 public abstract class DaoTestBase {
 

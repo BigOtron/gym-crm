@@ -6,6 +6,8 @@ import io.gymcrm.dao.UserDao;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.exceptions.AuthenticationException;
 import io.gymcrm.services.implementations.AuthenticationServiceImpl;
+import io.gymcrm.metrics.GymMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,9 +41,12 @@ class AuthenticationServiceImplTest {
 
     private AuthenticationServiceImpl service;
 
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
     @BeforeEach
     void setUp() {
         service = new AuthenticationServiceImpl();
+        service.setMetrics(new GymMetrics(registry));
         service.setUserDao(userDao);
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
@@ -151,5 +156,49 @@ class AuthenticationServiceImplTest {
                 () -> service.authenticate(new Credentials("Anna.Lee", "wrong"))).getMessage();
 
         assertEquals(unknownUser, wrongPassword);
+    }
+
+    private double count(String name, String tag, String value) {
+        return registry.get(name).tag(tag, value).counter().count();
+    }
+
+    @Test
+    void successfulLoginIsCounted() {
+        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+
+        service.login(new Credentials("Anna.Lee", "pw"));
+
+        assertEquals(1, count(GymMetrics.LOGINS, "result", "success"));
+        assertEquals(0, count(GymMetrics.LOGINS, "result", "failure"));
+    }
+
+    @Test
+    void failedLoginIsCountedAndStillRejected() {
+        when(userDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA).getUser()));
+
+        assertThrows(AuthenticationException.class, () -> service.login(new Credentials("Anna.Lee", "wrong")));
+
+        assertEquals(1, count(GymMetrics.LOGINS, "result", "failure"));
+        assertEquals(0, count(GymMetrics.LOGINS, "result", "success"));
+    }
+
+    @Test
+    void everyRejectionIsCountedWithTheRequiredRole() {
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
+
+        assertThrows(AuthenticationException.class, () -> service.authenticateTrainee(new Credentials("John.Smith", "x")));
+        assertThrows(AuthenticationException.class, () -> service.authenticateTrainer(null));
+
+        assertEquals(1, count(GymMetrics.AUTHENTICATION_FAILURES, "role", "trainee"));
+        assertEquals(1, count(GymMetrics.AUTHENTICATION_FAILURES, "role", "trainer"));
+    }
+
+    @Test
+    void credentialChecksThatOnlyAnswerYesOrNoAreNotCounted() {
+        when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
+
+        assertFalse(service.traineeCredentialsMatch(new Credentials("John.Smith", "x")));
+
+        assertTrue(registry.find(GymMetrics.AUTHENTICATION_FAILURES).counters().isEmpty());
     }
 }

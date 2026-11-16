@@ -1,4 +1,4 @@
-import io.gymcrm.config.AppConfig;
+import io.gymcrm.Application;
 import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeRegistration;
@@ -20,7 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import javax.sql.DataSource;
 import java.time.LocalDate;
@@ -32,11 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Runs the whole application against an in-memory H2 database. There is no test-wide transaction,
- * so every facade call commits on its own, just like in the real application.
- */
-@SpringJUnitConfig(AppConfig.class)
+@SpringBootTest(classes = Application.class)
 class GymCrmIntegrationTest {
 
     private static final long YOGA = 6L;
