@@ -2,14 +2,13 @@ package io.gymcrm.dao;
 
 import io.gymcrm.entities.Trainer;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 public interface TrainerDao {
-    Trainer create(Trainer trainer);
-    Trainer update(Trainer trainer);
-    Optional<Trainer> findById(UUID userId);
+    Trainer save(Trainer trainer);
     Optional<Trainer> findByUsername(String username);
-    List<Trainer> findAll();
+    List<Trainer> findByUsernames(Collection<String> usernames);
+    List<Trainer> findNotAssignedToTrainee(String traineeUsername);
 }

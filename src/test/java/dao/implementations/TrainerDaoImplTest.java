@@ -1,148 +1,114 @@
 package dao.implementations;
 
-import io.gymcrm.dao.implementations.TrainerDaoImpl;
+import io.gymcrm.dao.TrainerDao;
+import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
-import io.gymcrm.entities.TrainingType;
-import org.junit.jupiter.api.BeforeEach;
+import io.gymcrm.entities.User;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import support.DaoTestBase;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class TrainerDaoImplTest {
+class TrainerDaoImplTest extends DaoTestBase {
 
-    private Map<UUID, Trainer> storage;
-    private TrainerDaoImpl dao;
+    @Autowired
+    private TrainerDao trainerDao;
 
-    @BeforeEach
-    void setUp() {
-        storage = new HashMap<>();
-        dao = new TrainerDaoImpl();
-        dao.setStorage(storage);
+    private static List<String> usernames(List<Trainer> trainers) {
+        return trainers.stream().map(t -> t.getUser().getUsername()).toList();
     }
 
-    private static Trainer trainer(String username) {
+    @Test
+    void saveCascadesToUser() {
         Trainer trainer = new Trainer();
-        trainer.setFirstName("Anna");
-        trainer.setLastName("Lee");
-        trainer.setUsername(username);
-        trainer.addSpecialization(TrainingType.YOGA);
-        return trainer;
+        trainer.setUser(new User("Anna", "Lee", "Anna.Lee", "password", true));
+        trainer.setSpecialization(type("Yoga"));
+
+        trainerDao.save(trainer);
+        flushAndClear();
+
+        assertNotNull(trainer.getId());
+        assertEquals(1, count("users"));
+        assertEquals(1, count("trainer"));
     }
 
     @Test
-    void createAssignsIdAndStoresTrainer() {
-        Trainer trainer = trainer("Anna.Lee");
+    void findByUsernameLoadsSpecializationAndTrainees() {
+        Trainer anna = persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        persistTrainee("John", "Smith", "John.Smith").getTrainers().add(anna);
+        flushAndClear();
 
-        Trainer result = dao.create(trainer);
+        Trainer found = trainerDao.findByUsername("Anna.Lee").orElseThrow();
 
-        assertSame(trainer, result);
-        assertNotNull(result.getUserId());
-        assertSame(trainer, storage.get(result.getUserId()));
+        assertEquals("Yoga", found.getSpecialization().getTrainingTypeName());
+        assertTrue(Hibernate.isInitialized(found.getTrainees()));
+        assertEquals(1, found.getTrainees().size());
     }
 
     @Test
-    void createKeepsExistingId() {
-        UUID id = UUID.randomUUID();
-        Trainer trainer = trainer("Anna.Lee");
-        trainer.setUserId(id);
+    void findByUsernameIgnoresTrainees() {
+        persistTrainee("John", "Smith", "John.Smith");
 
-        dao.create(trainer);
-
-        assertEquals(id, trainer.getUserId());
-        assertSame(trainer, storage.get(id));
+        assertTrue(trainerDao.findByUsername("John.Smith").isEmpty());
     }
 
     @Test
-    void updateReplacesStoredTrainerAndReturnsNewVersion() {
-        Trainer original = dao.create(trainer("Anna.Lee"));
-        Trainer changed = trainer("Anna.Lee");
-        changed.setUserId(original.getUserId());
-        changed.setSpecialization(Set.of(TrainingType.FITNESS));
+    void findByUsernamesReturnsOnlyExistingTrainers() {
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
+        persistTrainee("John", "Smith", "John.Smith");
 
-        Trainer result = dao.update(changed);
+        List<Trainer> found = trainerDao.findByUsernames(List.of("Anna.Lee", "John.Smith", "Nobody"));
 
-        assertSame(changed, result);
-        assertEquals(Set.of(TrainingType.FITNESS), storage.get(original.getUserId()).getSpecialization());
-        assertEquals(1, storage.size());
+        assertEquals(List.of("Anna.Lee"), usernames(found));
     }
 
     @Test
-    void updateUnknownIdThrowsAndDoesNotInsert() {
-        Trainer trainer = trainer("Anna.Lee");
-        trainer.setUserId(UUID.randomUUID());
+    void findByUsernamesWithEmptyListReturnsEmptyList() {
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
 
-        assertThrows(NoSuchElementException.class, () -> dao.update(trainer));
-        assertTrue(storage.isEmpty());
+        assertTrue(trainerDao.findByUsernames(List.of()).isEmpty());
     }
 
     @Test
-    void updateWithoutIdThrows() {
-        Trainer trainer = trainer("Anna.Lee");
+    void notAssignedReturnsActiveTrainersOutsideTheTraineesList() {
+        Trainee john = persistTrainee("John", "Smith", "John.Smith");
+        Trainer anna = persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
+        persistTrainer("Old", "Coach", "Old.Coach", "Fitness").getUser().setActive(false);
+        john.getTrainers().add(anna);
+        flushAndClear();
 
-        assertThrows(NoSuchElementException.class, () -> dao.update(trainer));
+        assertEquals(List.of("David.Brown"), usernames(trainerDao.findNotAssignedToTrainee("John.Smith")));
     }
 
     @Test
-    void findByIdReturnsStoredTrainer() {
-        Trainer trainer = dao.create(trainer("Anna.Lee"));
+    void notAssignedIgnoresOtherTraineesLists() {
+        Trainee john = persistTrainee("John", "Smith", "John.Smith");
+        Trainee maria = persistTrainee("Maria", "Garcia", "Maria.Garcia");
+        Trainer anna = persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        Trainer david = persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
+        john.getTrainers().add(anna);
+        maria.getTrainers().add(david);
+        flushAndClear();
 
-        Optional<Trainer> result = dao.findById(trainer.getUserId());
-
-        assertTrue(result.isPresent());
-        assertSame(trainer, result.get());
+        assertEquals(List.of("David.Brown"), usernames(trainerDao.findNotAssignedToTrainee("John.Smith")));
     }
 
     @Test
-    void findByIdUnknownReturnsEmpty() {
-        assertTrue(dao.findById(UUID.randomUUID()).isEmpty());
-    }
+    void notAssignedReturnsAllActiveTrainersWhenListIsEmptyAndSortsByUsername() {
+        persistTrainee("John", "Smith", "John.Smith");
+        persistTrainer("David", "Brown", "David.Brown", "Heavy lifting");
+        persistTrainer("Anna", "Lee", "Anna.Lee", "Yoga");
+        flushAndClear();
 
-    @Test
-    void findByUsernameReturnsMatchingTrainer() {
-        dao.create(trainer("Anna.Lee"));
-        Trainer second = dao.create(trainer("Anna.Lee1"));
-
-        Optional<Trainer> result = dao.findByUsername("Anna.Lee1");
-
-        assertTrue(result.isPresent());
-        assertSame(second, result.get());
-    }
-
-    @Test
-    void findByUsernameUnknownReturnsEmpty() {
-        dao.create(trainer("Anna.Lee"));
-
-        assertTrue(dao.findByUsername("Nobody.Here").isEmpty());
-    }
-
-    @Test
-    void findByUsernameSkipsTrainersWithoutUsername() {
-        dao.create(trainer(null));
-
-        assertTrue(dao.findByUsername("Anna.Lee").isEmpty());
-    }
-
-    @Test
-    void findAllReturnsUnmodifiableSnapshot() {
-        dao.create(trainer("Anna.Lee"));
-
-        List<Trainer> all = dao.findAll();
-        dao.create(trainer("Anna.Lee1"));
-
-        assertEquals(1, all.size());
-        Trainer extra = trainer("X.Y");
-        assertThrows(UnsupportedOperationException.class, () -> all.add(extra));
+        assertEquals(List.of("Anna.Lee", "David.Brown"),
+                usernames(trainerDao.findNotAssignedToTrainee("John.Smith")));
     }
 }

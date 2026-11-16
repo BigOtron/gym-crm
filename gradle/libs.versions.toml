@@ -1,8 +1,11 @@
 [versions]
 junit-bom = "6.0.0"
-spring-context = "7.1.0-M1"
+spring = "7.0.9"
+hibernate = "7.4.11.Final"
+hikari = "7.1.0"
+postgresql = "42.7.13"
+h2 = "2.5.252"
 lombok = "1.18.46"
-jackson = "2.22.2"
 logback = "1.5.18"
 mockito = "5.20.0"
 
@@ -10,10 +13,14 @@ mockito = "5.20.0"
 junit-bom = { group = "org.junit", name = "junit-bom", version.ref = "junit-bom" }
 junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter" }
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
-spring-context = { group = "org.springframework", name = "spring-context", version.ref = "spring-context" }
+spring-context = { group = "org.springframework", name = "spring-context", version.ref = "spring" }
+spring-orm = { group = "org.springframework", name = "spring-orm", version.ref = "spring" }
+spring-test = { group = "org.springframework", name = "spring-test", version.ref = "spring" }
+hibernate-core = { group = "org.hibernate.orm", name = "hibernate-core", version.ref = "hibernate" }
+hikari = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikari" }
+postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql" }
+h2 = { group = "com.h2database", name = "h2", version.ref = "h2" }
 lombok = { group = "org.projectlombok", name = "lombok", version.ref = "lombok" }
-jackson-databind = { group = "com.fasterxml.jackson.core", name = "jackson-databind", version.ref = "jackson" }
-jackson-datatype = { group = "com.fasterxml.jackson.datatype", name = "jackson-datatype-jsr310", version.ref = "jackson" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
 mockito-junit-jupiter = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
