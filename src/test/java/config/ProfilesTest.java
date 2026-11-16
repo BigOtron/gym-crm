@@ -9,6 +9,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.StandardEnvironment;
 
 import java.util.Map;
 import java.util.Set;
@@ -46,7 +47,12 @@ class ProfilesTest {
         // All tests run with the "test" profile (see build.gradle.kts). A command-line argument
         // overrides that, so exactly the requested profile is active (none means the default, "local").
         String activeProfiles = "--spring.profiles.active=" + (profile == null ? "" : profile);
+        // Without the machine's real environment variables (e.g. a DB_PASSWORD set in the developer's
+        // shell): only the variables given by each test count.
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
         context = new SpringApplicationBuilder(NoBeans.class)
+                .environment(environment)
                 .web(WebApplicationType.NONE)
                 .logStartupInfo(false)
                 .properties(variables)
@@ -55,7 +61,8 @@ class ProfilesTest {
     }
 
     private static Map<String, Object> allVariables() {
-        return Map.of("DB_HOST", "db.example", "DB_USERNAME", "user", "DB_PASSWORD", "secret");
+        return Map.of("DB_HOST", "db.example", "DB_USERNAME", "user", "DB_PASSWORD", "secret",
+                "JWT_SECRET", "a-secret-from-the-environment");
     }
 
     @Test
@@ -194,5 +201,37 @@ class ProfilesTest {
         String format = environment(profile, allVariables()).getProperty("gymcrm.logging.time-format");
         context.close();
         return format;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dev", "stg", "prod"})
+    void serversRequireTheJwtSecretFromTheEnvironment(String profile) {
+        Environment env = environment(profile, Map.of("DB_HOST", "db.example", "DB_USERNAME", "user", "DB_PASSWORD", "x"));
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> env.getProperty("gymcrm.security.jwt.secret"));
+        assertTrue(e.getMessage().contains("JWT_SECRET"), e.getMessage());
+    }
+
+    @Test
+    void corsAllowsTheLocalFrontendOnlyOnDeveloperEnvironments() {
+        assertEquals("http://localhost:3000", corsOrigins("local"));
+        assertEquals("http://localhost:3000", corsOrigins("dev"));
+        assertEquals("", corsOrigins("stg"));
+        assertEquals("", corsOrigins("prod"));
+    }
+
+    private String corsOrigins(String profile) {
+        String origins = environment(profile, allVariables()).getProperty("gymcrm.security.cors.allowed-origins");
+        context.close();
+        return origins;
+    }
+
+    @Test
+    void bruteForceSettingsMatchTheTask() {
+        Environment env = environment("local", Map.of());
+
+        assertEquals("3", env.getProperty("gymcrm.security.login.max-failures"));
+        assertEquals("5m", env.getProperty("gymcrm.security.login.block-duration"));
     }
 }

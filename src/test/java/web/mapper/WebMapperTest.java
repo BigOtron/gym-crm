@@ -1,11 +1,13 @@
 package web.mapper;
 
+import io.gymcrm.dto.IssuedToken;
 import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.entities.User;
 import io.gymcrm.web.dto.CredentialsResponse;
+import io.gymcrm.web.dto.TokenResponse;
 import io.gymcrm.web.dto.TraineeProfileResponse;
 import io.gymcrm.web.dto.TraineeSummary;
 import io.gymcrm.web.dto.TraineeTrainingResponse;
@@ -45,10 +47,16 @@ class WebMapperTest {
     }
 
     @Test
-    void credentials() {
-        User user = new User("John", "Smith", "John.Smith", "secret", true);
+    void credentialsShowTheGeneratedPasswordNotTheStoredHash() {
+        User user = new User("John", "Smith", "John.Smith", "$2a$10$storedHash", true);
 
-        assertEquals(new CredentialsResponse("John.Smith", "secret"), WebMapper.toCredentials(user));
+        assertEquals(new CredentialsResponse("John.Smith", "generated1", "jwt"),
+                WebMapper.toCredentials(user, "generated1", new IssuedToken("jwt", 3600)));
+    }
+
+    @Test
+    void tokenResponse() {
+        assertEquals(new TokenResponse("jwt", "Bearer", 3600), WebMapper.toTokenResponse(new IssuedToken("jwt", 3600)));
     }
 
     @Test

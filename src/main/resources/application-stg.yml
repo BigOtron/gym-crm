@@ -11,5 +11,10 @@ logging:
     io.gymcrm: INFO
 
 gymcrm:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   logging:
     time-format: yyyy-MM-dd HH:mm:ss.SSS

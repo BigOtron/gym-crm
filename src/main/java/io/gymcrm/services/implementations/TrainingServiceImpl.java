@@ -4,7 +4,6 @@ import io.gymcrm.dao.TraineeDao;
 import io.gymcrm.dao.TrainerDao;
 import io.gymcrm.dao.TrainingDao;
 import io.gymcrm.dao.TrainingTypeDao;
-import io.gymcrm.dto.Credentials;
 import io.gymcrm.dto.NewTraining;
 import io.gymcrm.dto.TraineeTrainingCriteria;
 import io.gymcrm.dto.TrainerTrainingCriteria;
@@ -12,13 +11,12 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.entities.TrainingType;
-import io.gymcrm.exceptions.ForbiddenException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.metrics.GymMetrics;
-import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TrainingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,10 +30,10 @@ import static io.gymcrm.services.Validation.requireValue;
 @Slf4j
 @Service
 @Transactional
+@PreAuthorize("isAuthenticated()")
 public class TrainingServiceImpl implements TrainingService {
 
     private TrainingDao trainingDao;
-    private AuthenticationService authenticationService;
     private GymMetrics metrics;
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
@@ -44,11 +42,6 @@ public class TrainingServiceImpl implements TrainingService {
     @Autowired
     public void setMetrics(GymMetrics metrics) {
         this.metrics = metrics;
-    }
-
-    @Autowired
-    public void setAuthenticationService(AuthenticationService authenticationService) {
-        this.authenticationService = authenticationService;
     }
 
     @Autowired
@@ -71,9 +64,11 @@ public class TrainingServiceImpl implements TrainingService {
         this.trainingTypeDao = trainingTypeDao;
     }
 
+    /** Only the training's own trainee or trainer may add it. */
     @Override
-    public Training create(Credentials auth, NewTraining newTraining) {
-        authenticationService.authenticate(auth);
+    @PreAuthorize("isAuthenticated() and (#newTraining?.traineeUsername() == authentication.name"
+            + " or #newTraining?.trainerUsername() == authentication.name)")
+    public Training create(NewTraining newTraining) {
         Objects.requireNonNull(newTraining, "newTraining must not be null");
         String traineeUsername = requireText(newTraining.traineeUsername(), "Trainee username");
         String trainerUsername = requireText(newTraining.trainerUsername(), "Trainer username");
@@ -83,10 +78,6 @@ public class TrainingServiceImpl implements TrainingService {
         if (duration <= 0) {
             log.warn("Rejected training '{}' with non-positive duration {}", name, duration);
             throw new IllegalArgumentException("Training duration must be positive");
-        }
-        if (!auth.username().equals(traineeUsername) && !auth.username().equals(trainerUsername)) {
-            log.warn("User {} tried to add a training they don't take part in", auth.username());
-            throw new ForbiddenException("Only the trainee or the trainer can add a training");
         }
         log.debug("Creating training '{}' for trainee {} with trainer {}", name, traineeUsername, trainerUsername);
 
@@ -120,9 +111,8 @@ public class TrainingServiceImpl implements TrainingService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Training> getTraineeTrainings(Credentials auth, String traineeUsername,
+    public List<Training> getTraineeTrainings(String traineeUsername,
                                               TraineeTrainingCriteria criteria) {
-        authenticationService.authenticate(auth);
         if (traineeDao.findByUsername(traineeUsername).isEmpty()) {
             log.warn("Trainee not found by username {}", traineeUsername);
             throw new NotFoundException("Trainee not found: " + traineeUsername);
@@ -133,9 +123,8 @@ public class TrainingServiceImpl implements TrainingService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Training> getTrainerTrainings(Credentials auth, String trainerUsername,
+    public List<Training> getTrainerTrainings(String trainerUsername,
                                               TrainerTrainingCriteria criteria) {
-        authenticationService.authenticate(auth);
         if (trainerDao.findByUsername(trainerUsername).isEmpty()) {
             log.warn("Trainer not found by username {}", trainerUsername);
             throw new NotFoundException("Trainer not found: " + trainerUsername);
@@ -146,8 +135,7 @@ public class TrainingServiceImpl implements TrainingService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<TrainingType> getTrainingTypes(Credentials auth) {
-        authenticationService.authenticate(auth);
+    public List<TrainingType> getTrainingTypes() {
         return trainingTypeDao.findAll();
     }
 }

@@ -66,7 +66,8 @@ class ActuatorIntegrationTest extends WebTestBase {
 
     @Test
     void metricsEndpointIsExposed() throws Exception {
-        mvc.perform(get("/actuator/metrics"))
+        mvc.perform(get("/actuator/metrics")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/actuator/metrics").header("Authorization", john))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.names", hasItem("jvm.memory.used")));
     }

@@ -50,11 +50,9 @@ class PrometheusIntegrationTest extends WebTestBase {
     void loginsAreCountedBySuccessAndFailure() throws Exception {
         String before = scrape();
 
-        mvc.perform(get("/api/auth/login").header("Authorization", john)).andExpect(status().isOk());
-        mvc.perform(get("/api/auth/login").header("Authorization", basic("John.Smith", "wrong")))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/auth/login").header("Authorization", basic("John.Smith", "wrong")))
-                .andExpect(status().isUnauthorized());
+        login("John.Smith", passwordOf(john)).andExpect(status().isOk());
+        login("John.Smith", "wrong").andExpect(status().isUnauthorized());
+        login("John.Smith", "wrong").andExpect(status().isUnauthorized());
 
         String after = scrape();
         String success = "application=\"gym-crm\",result=\"success\"";

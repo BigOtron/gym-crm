@@ -1,7 +1,7 @@
 package config;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
-import io.gymcrm.config.DatabaseSettingsCheck;
+import io.gymcrm.config.RequiredSettingsCheck;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 import support.LogCapture;
@@ -13,19 +13,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class DatabaseSettingsCheckTest {
+class RequiredSettingsCheckTest {
 
     private static MockEnvironment prod() {
         MockEnvironment env = new MockEnvironment()
                 .withProperty("spring.datasource.url", "jdbc:postgresql://${DB_HOST}:5432/gymcrm")
                 .withProperty("spring.datasource.username", "${DB_USERNAME}")
-                .withProperty("spring.datasource.password", "${DB_PASSWORD}");
+                .withProperty("spring.datasource.password", "${DB_PASSWORD}")
+                .withProperty("gymcrm.security.jwt.secret", "${JWT_SECRET}");
         env.setActiveProfiles("prod");
         return env;
     }
 
     private static void check(MockEnvironment env) {
-        DatabaseSettingsCheck check = new DatabaseSettingsCheck();
+        RequiredSettingsCheck check = new RequiredSettingsCheck();
         check.setEnvironment(env);
         check.postProcessBeanFactory(null);
     }
@@ -35,9 +36,10 @@ class DatabaseSettingsCheckTest {
         MockEnvironment env = prod()
                 .withProperty("DB_HOST", "db.example")
                 .withProperty("DB_USERNAME", "gym")
-                .withProperty("DB_PASSWORD", "top-secret");
+                .withProperty("DB_PASSWORD", "top-secret")
+                .withProperty("JWT_SECRET", "another-top-secret");
 
-        try (LogCapture logs = new LogCapture(DatabaseSettingsCheck.class.getName())) {
+        try (LogCapture logs = new LogCapture(RequiredSettingsCheck.class.getName())) {
             check(env);
 
             List<String> messages = logs.messages();
@@ -81,13 +83,26 @@ class DatabaseSettingsCheckTest {
         MockEnvironment env = new MockEnvironment()
                 .withProperty("spring.datasource.url", "jdbc:postgresql://localhost:5432/gymcrm")
                 .withProperty("spring.datasource.username", "gymcrm")
-                .withProperty("spring.datasource.password", "gymcrm");
+                .withProperty("spring.datasource.password", "gymcrm")
+                .withProperty("gymcrm.security.jwt.secret", "a-secret");
         env.setDefaultProfiles("local");
 
-        try (LogCapture logs = new LogCapture(DatabaseSettingsCheck.class.getName())) {
+        try (LogCapture logs = new LogCapture(RequiredSettingsCheck.class.getName())) {
             check(env);
             List<ILoggingEvent> events = logs.events();
             assertTrue(events.get(0).getFormattedMessage().startsWith("Environment [local]"));
         }
+    }
+
+    @Test
+    void missingJwtSecretStopsTheStartUpAndNamesIt() {
+        MockEnvironment env = prod()
+                .withProperty("DB_HOST", "db.example")
+                .withProperty("DB_USERNAME", "gym")
+                .withProperty("DB_PASSWORD", "top-secret");
+
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> check(env));
+
+        assertTrue(e.getMessage().contains("JWT_SECRET"), e.getMessage());
     }
 }
