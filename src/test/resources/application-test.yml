@@ -11,7 +11,16 @@ management:
     health:
       show-details: always
 
+eureka:
+  client:
+    enabled: false
+
 gymcrm:
+  workload:
+    # Tests that need the client mock it or turn it on themselves.
+    enabled: false
+    jwt:
+      secret: test-only-workload-secret-with-32-bytes-at-least
   security:
     jwt:
       secret: test-only-secret-with-at-least-32-bytes-of-text

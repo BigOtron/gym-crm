@@ -16,6 +16,9 @@ management:
       show-details: always
 
 gymcrm:
+  workload:
+    jwt:
+      secret: ${WORKLOAD_JWT_SECRET}
   security:
     jwt:
       secret: ${JWT_SECRET}

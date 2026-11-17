@@ -10,6 +10,7 @@ import io.gymcrm.web.dto.TrainerRegistrationRequest;
 import io.gymcrm.web.dto.TrainerTrainingResponse;
 import io.gymcrm.web.dto.TrainerTrainingsQuery;
 import io.gymcrm.web.dto.TrainerUpdateRequest;
+import io.gymcrm.web.dto.TrainerWorkloadResponse;
 import io.gymcrm.web.mapper.WebMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -94,6 +95,19 @@ public class TrainerController {
                                                       @PathVariable String username,
                                                       @Valid TrainerTrainingsQuery query) {
         return WebMapper.toTrainerTrainings(facade.getTrainerTrainings(username, WebMapper.toCriteria(query)));
+    }
+
+    @GetMapping("/{username}/workload")
+    @Operation(summary = "Get a trainer's training minutes per month",
+            description = "Read from the Trainer Workload service. Only the trainer can see their own workload.")
+    @ApiResponse(responseCode = "200", description = "Minutes per year and month (empty if no trainings yet)")
+    @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
+    @ApiResponse(responseCode = "403", description = "Not a trainer, or someone else's workload")
+    @ApiResponse(responseCode = "404", description = "No trainer with this username")
+    @ApiResponse(responseCode = "503", description = "The Trainer Workload service is unavailable")
+    public TrainerWorkloadResponse getWorkload(@Parameter(description = "Trainer's username", example = "Anna.Lee")
+                                               @PathVariable String username) {
+        return WebMapper.toResponse(facade.getTrainerWorkload(username));
     }
 
     @PatchMapping("/{username}/status")

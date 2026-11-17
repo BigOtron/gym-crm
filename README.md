@@ -3,6 +3,21 @@
 A REST API for a gym CRM: trainee and trainer profiles, the trainees' trainers, trainings and training types.
 A Spring Boot application secured with Spring Security and JWT, storing its data in PostgreSQL through Hibernate.
 
+The repository holds three services, each a Gradle project with its own Docker image:
+
+| Service                  | Folder              | Port | What it does                                                         |
+|--------------------------|---------------------|------|----------------------------------------------------------------------|
+| Gym CRM                  | `/` (root)          | 8080 | The main API. Reports every added or deleted training.               |
+| Trainer Workload         | `trainer-workload/` | 8081 | Sums each trainer's training minutes per month (in-memory database). |
+| Eureka Discovery Server  | `discovery-server/` | 8761 | The registry where the other two register and find each other.      |
+
+```
+ client ──► Gym CRM ──(1) where is "trainer-workload"?──► Eureka ◄──registers── Trainer Workload
+               │                                                                    ▲
+               └──(2) POST /api/trainer-workloads, service JWT, X-Transaction-Id ───┘
+                      through a circuit breaker, with connect and read timeouts
+```
+
 ## Tech stack
 
 - Java 17 or newer, Gradle
@@ -10,6 +25,7 @@ A Spring Boot application secured with Spring Security and JWT, storing its data
 - Spring Security with JWT (OAuth2 resource server support), BCrypt password hashing
 - Hibernate ORM 7 (JPA), HikariCP, PostgreSQL; H2 for tests and the `standalone` profile
 - Spring Boot Actuator, Micrometer with Prometheus
+- Spring Cloud: Netflix Eureka (discovery), Spring Cloud LoadBalancer, Circuit Breaker with Resilience4j
 - Jackson 3 for JSON, Hibernate Validator for request validation
 - Swagger (OpenAPI 3) annotations for API documentation
 - SLF4J + Logback, Lombok
@@ -80,15 +96,78 @@ curl -i -X POST -H "Authorization: Bearer <token>" localhost:8080/api/auth/logou
 ### Tests
 
 ```bash
-./gradlew test
+./gradlew test                     # all three services
+./gradlew check                    # tests + line coverage of at least 80% (JaCoCo) per service
+./gradlew :trainer-workload:test   # one service
 ```
 
-The tests use an in-memory H2 database, so no PostgreSQL is needed.
+The tests use an in-memory H2 database and no Eureka, so nothing else needs to run. Coverage reports are in
+`build/reports/jacoco/test/html` of each service.
+
+### All three services without Docker
+
+```bash
+./gradlew bootJar
+java -jar discovery-server/build/libs/discovery-server.jar     # http://localhost:8761
+java -jar trainer-workload/build/libs/trainer-workload.jar     # registers as TRAINER-WORKLOAD
+./gradlew bootRun                                              # Gym CRM (local profile, needs PostgreSQL)
+```
+
+The local profiles of Gym CRM and Trainer Workload share a development-only service-token secret; on servers
+both get the same `WORKLOAD_JWT_SECRET`.
 
 ## Running in Docker
 
-The image is built by the multi-stage `Dockerfile`: the first stage compiles the jar with Gradle inside a
-JDK container, the second contains only a JRE and the jar and runs as a non-root user.
+Each service has its own multi-stage Dockerfile (`Dockerfile`, `trainer-workload/Dockerfile`,
+`discovery-server/Dockerfile`): the first stage compiles the jar with Gradle inside a JDK container, the second
+contains only a JRE and the jar and runs as a non-root user. All three are built from the repository root,
+because the Gradle build spans the three folders.
+
+### Everything with Docker Compose (`compose.yml`)
+
+```bash
+docker compose up -d --build       # postgres, discovery-server, trainer-workload, gym-crm on gymcrm-net
+docker compose ps                  # wait until every service shows "(healthy)"
+```
+
+- Eureka dashboard: http://localhost:8761 lists `GYM-CRM` and `TRAINER-WORKLOAD`, both `UP`.
+- Containers talk to the database and to Eureka by their compose service names (`postgres`,
+  `discovery-server`). Gym CRM calls the workload service by its Eureka name, `http://trainer-workload`; the
+  load balancer looks up the instance's current address in Eureka. No IP address is written anywhere.
+- Start-up order: the workload service and Gym CRM wait until Eureka (and Gym CRM until PostgreSQL) passes its
+  health check, not just until the container started. Gym CRM doesn't wait for the workload service.
+- Ports and the shared secret can be changed: `APP_PORT`, `WORKLOAD_PORT`, `EUREKA_PORT`,
+  `WORKLOAD_JWT_SECRET` (e.g. in a `.env` file next to `compose.yml`).
+
+Try the integration:
+
+```bash
+# register a trainee and a trainer, add a training as the trainee (see "Try it" above), then as the trainer:
+curl -H "Authorization: Bearer $TRAINER_TOKEN" localhost:8080/api/trainers/Anna.Lee/workload
+docker compose logs gym-crm trainer-workload | grep <X-Transaction-Id of the request>   # both services
+
+# The workload service is unavailable: adding a training answers 503 and saves nothing.
+docker compose stop trainer-workload
+#   the first calls fail on connect, then the circuit opens and calls are refused immediately
+docker compose start trainer-workload
+#   it registers again within seconds, the circuit lets trial calls through and closes: 200 again
+
+# Eureka restarts: both services register again by themselves (heartbeat every 5 s).
+docker compose restart discovery-server
+```
+
+```bash
+docker compose logs -f trainer-workload   # one service's logs
+docker compose down                       # add -v to also delete the database volume
+```
+
+Each image also runs on its own:
+
+```bash
+docker run -d -p 8080:8080 gym-crm:1.0                    # standalone profile: H2, no Eureka, no workload calls
+docker run -d -p 8081:8081 -e WORKLOAD_JWT_SECRET=... -e EUREKA_URL=http://<eureka-host>:8761/eureka trainer-workload:1.0
+docker run -d -p 8761:8761 gymcrm-discovery-server:1.0
+```
 
 ### 1. Without external systems (integrations disabled)
 
@@ -109,15 +188,7 @@ docker rm -f gymcrm-standalone
 The application and the database run in separate containers on a user-defined network, where they find each
 other by container name. The database port isn't published, so only containers on the network can reach it.
 
-With Docker Compose (`docker-compose.yml`):
-
-```bash
-docker compose up -d --build                # network gymcrm-net, containers gymcrm-db and gymcrm-app
-docker compose ps
-docker compose down                         # add -v to also delete the database volume
-```
-
-The same with plain `docker` commands:
+With plain `docker` commands (Compose does this, plus the other services, see above):
 
 ```bash
 docker network create gymcrm-net
@@ -165,6 +236,35 @@ Every log line contains the request's transaction id, which is also returned in 
 | 16 | Activate/de-activate trainer       | `PATCH /api/trainers/{username}/status`            | 200     |
 | 17 | Training types                     | `GET /api/training-types`                          | 200     |
 | 18 | Logout, revokes the token          | `POST /api/auth/logout`                            | 200     |
+| 19 | Trainer's minutes per month        | `GET /api/trainers/{username}/workload`            | 200     |
+
+Adding a training (14) reports it to the Trainer Workload service (`ADD`). A training can only be deleted by
+deleting its trainee (7: the trainee's trainings are deleted with them), which reports each of the trainee's
+trainings (`DELETE`). If the workload service can't be reached in time, these requests answer **503** and change
+nothing, so both services stay consistent.
+
+### Trainer Workload API (port 8081)
+
+| Operation                                  | Method and URL                                                     | Scope            |
+|--------------------------------------------|--------------------------------------------------------------------|------------------|
+| Add or remove a training's minutes         | `POST /api/trainer-workloads`                                      | `workload.write` |
+| A trainer's minutes per year and month     | `GET /api/trainer-workloads/{username}`                            | `workload.read`  |
+| A trainer's minutes in one month           | `GET /api/trainer-workloads/{username}/years/{year}/months/{month}` | `workload.read`  |
+
+```json
+{"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee","isActive":true,
+ "trainingDate":"2026-11-20","trainingDuration":60,"actionType":"ADD"}
+```
+
+```json
+{"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee","trainerStatus":"ACTIVE",
+ "years":[{"year":2026,"months":[{"month":11,"trainingSummaryDuration":105},{"month":12,"trainingSummaryDuration":30}]}]}
+```
+
+Only Gym CRM can call it: each call carries a short-lived JWT (5 minutes) signed with `WORKLOAD_JWT_SECRET`, a
+secret the two services share and that is separate from the one for user tokens. The token must have issuer
+`gym-crm`, audience `trainer-workload` and the scope of the operation. Every request gets the caller's
+`X-Transaction-Id`, so one request can be followed through the logs of both services.
 
 The request and response fields, and every possible error, are documented with Swagger annotations in the
 controllers (`io.gymcrm.web.controller`).
@@ -276,17 +376,20 @@ Restrict the public endpoints at the network level on real servers.
 io.gymcrm
 ├── Application                  the Spring Boot entry point
 ├── config                       RequiredSettingsCheck: stops the start-up if a required setting is missing
+├── integration.workload         TrainerWorkloadClient (REST + circuit breaker, or disabled), its config,
+│                                WorkloadTokenProvider (service JWT), the request and response records
 ├── security                     SecurityConfig (filter chain, CORS, BCrypt), JwtConfig, JwtTokenService,
 │                                TokenRevocationService, LoginAttemptService, GymUserDetailsService,
 │                                JwtLogoutHandler, SecurityErrorHandler
 ├── entities                     User, Trainee, Trainer, Training, TrainingType (JPA)
 ├── dto                          facade inputs and results: Credentials, IssuedToken, CreatedProfile, ...
 ├── exceptions                   AuthenticationException (401), NotFoundException (404),
-│                                ConflictException (409), LoginBlockedException (429)
+│                                ConflictException (409), LoginBlockedException (429),
+│                                ServiceUnavailableException (503)
 ├── dao                          DAOs using the EntityManager and the Criteria API
 ├── services                     business logic, validation, @PreAuthorize rules, @Transactional
 ├── facade                       GymFacade: single entry point, delegates to the services
-├── health                       the custom health indicators
+├── health                       the custom health indicators; EurekaHealthConfig reports WARNING to Eureka as UP
 ├── metrics                      GymMetrics, ActiveUsersMetrics
 ├── util                         UsernameGenerator, PasswordGenerator
 └── web
@@ -296,6 +399,17 @@ io.gymcrm
     ├── mapper                   WebMapper: requests → facade inputs, entities → responses
     ├── error                    GlobalExceptionHandler: exceptions → status codes and problem details
     └── logging                  TransactionIdFilter, RestCallLoggingFilter
+```
+
+```
+trainer-workload: io.gymcrm.workload
+├── model                        TrainerWorkload (years → months → minutes), ActionType
+├── repository                   InMemoryTrainerWorkloadRepository: ConcurrentHashMap, atomic per trainer
+├── service                      TrainerWorkloadServiceImpl: ADD/DELETE, reading
+├── security                     SecurityConfig: JWT check (issuer, audience, scopes)
+└── web                          controller, records, GlobalExceptionHandler, transaction id + call logging
+
+discovery-server: io.gymcrm.discovery.DiscoveryServerApplication (@EnableEurekaServer)
 ```
 
 Controllers never return entities: responses are built by `WebMapper`, so the JSON doesn't depend on the
@@ -316,9 +430,24 @@ entity classes, and fields such as passwords can't leak by accident.
   `RestApiIntegrationTest` (successful paths), `ErrorHandlingIntegrationTest` (every error status),
   `LoggingIntegrationTest`, `ActuatorIntegrationTest` and `PrometheusIntegrationTest`.
 - **`ProfilesTest`** loads the real configuration of every environment.
+- **`TrainerWorkloadIntegrationTest`** runs Gym CRM with the real workload client against a fake workload
+  service (the JDK's HTTP server), found by name through the load balancer: the request body, the service
+  token, the transaction id, a timeout and a 500 (503, nothing saved or deleted), the circuit opening, and the
+  trainer's workload endpoint.
+- **Trainer Workload**: unit tests for the model, the repository (including concurrent updates), the service
+  and the controller, and `WorkloadApiIntegrationTest` with real tokens (missing, forged, expired, wrong issuer,
+  audience or scope).
 - **`ApiDocumentationTest`** checks that the Swagger annotations are complete and agree with the code.
 
 ## Known limitations
+
+- The Trainer Workload service keeps its data in memory: a restart loses it, and trainings added before are
+  then missing there (a later `DELETE` of one is logged as a warning and never makes a month negative).
+- Calls are synchronous. If the workload service applied a change but the answer was lost (e.g. a read
+  timeout), Gym CRM rolls back while the workload keeps the change; deleting a trainee with several trainings
+  can fail halfway the same way. A message queue (e.g. ActiveMQ) with retries would make the hand-over reliable.
+- The workload call runs inside Gym CRM's database transaction, so a slow workload service holds a database
+  connection for up to the read timeout.
 
 - Failed-login counts and revoked tokens are kept in memory: they are lost on restart and not shared between
   instances. Running several instances would need a shared store such as Redis.

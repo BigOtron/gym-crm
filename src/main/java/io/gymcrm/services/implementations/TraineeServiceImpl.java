@@ -7,9 +7,13 @@ import io.gymcrm.dto.TraineeRegistration;
 import io.gymcrm.dto.TraineeUpdate;
 import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
+import io.gymcrm.entities.Training;
 import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.integration.workload.TrainerWorkloadClient;
+import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.security.JwtTokenService;
 import io.gymcrm.security.Role;
@@ -48,6 +52,7 @@ public class TraineeServiceImpl implements TraineeService {
     private PasswordGenerator passwordGenerator;
     private PasswordEncoder passwordEncoder;
     private JwtTokenService tokenService;
+    private TrainerWorkloadClient workloadClient;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -67,6 +72,11 @@ public class TraineeServiceImpl implements TraineeService {
     @Autowired
     public void setUsernameGenerator(UsernameGenerator usernameGenerator) {
         this.usernameGenerator = usernameGenerator;
+    }
+
+    @Autowired
+    public void setWorkloadClient(TrainerWorkloadClient workloadClient) {
+        this.workloadClient = workloadClient;
     }
 
     @Autowired
@@ -144,11 +154,18 @@ public class TraineeServiceImpl implements TraineeService {
         log.info("Trainee {} is now {}", username, state);
     }
 
+    /**
+     * Deleting a trainee deletes their trainings too (cascade), which is the only way a training can be
+     * deleted. Each one is reported to the Trainer Workload service first; if that fails, nothing is deleted.
+     */
     @Override
     @PreAuthorize(OWNER)
     public void delete(String username) {
         Trainee trainee = find(username);
         int trainings = trainee.getTrainings().size();
+        for (Training training : trainee.getTrainings()) {
+            workloadClient.report(TrainerWorkloadEvent.of(training, WorkloadAction.DELETE));
+        }
         traineeDao.delete(trainee);
         log.info("Trainee {} deleted together with {} trainings", username, trainings);
     }

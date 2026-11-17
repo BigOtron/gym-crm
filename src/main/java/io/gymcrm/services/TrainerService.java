@@ -4,6 +4,7 @@ import io.gymcrm.dto.CreatedProfile;
 import io.gymcrm.dto.TrainerRegistration;
 import io.gymcrm.dto.TrainerUpdate;
 import io.gymcrm.entities.Trainer;
+import io.gymcrm.integration.workload.TrainerWorkloadSummary;
 
 import java.util.List;
 
@@ -25,4 +26,11 @@ public interface TrainerService {
 
     /** Active trainers that are not in the trainee's trainers list; any authenticated user can ask. */
     List<Trainer> getNotAssignedToTrainee(String traineeUsername);
+
+    /**
+     * The trainer's training minutes per month, from the Trainer Workload service. Only the trainer may ask.
+     *
+     * @throws io.gymcrm.exceptions.ServiceUnavailableException if that service can't be reached in time
+     */
+    TrainerWorkloadSummary getWorkload(String username);
 }

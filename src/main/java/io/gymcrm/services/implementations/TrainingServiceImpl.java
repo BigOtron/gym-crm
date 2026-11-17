@@ -12,6 +12,9 @@ import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.entities.TrainingType;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.integration.workload.TrainerWorkloadClient;
+import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.services.TrainingService;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +41,7 @@ public class TrainingServiceImpl implements TrainingService {
     private TraineeDao traineeDao;
     private TrainerDao trainerDao;
     private TrainingTypeDao trainingTypeDao;
+    private TrainerWorkloadClient workloadClient;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -60,11 +64,19 @@ public class TrainingServiceImpl implements TrainingService {
     }
 
     @Autowired
+    public void setWorkloadClient(TrainerWorkloadClient workloadClient) {
+        this.workloadClient = workloadClient;
+    }
+
+    @Autowired
     public void setTrainingTypeDao(TrainingTypeDao trainingTypeDao) {
         this.trainingTypeDao = trainingTypeDao;
     }
 
-    /** Only the training's own trainee or trainer may add it. */
+    /**
+     * Only the training's own trainee or trainer may add it. The training is reported to the Trainer
+     * Workload service; if that fails, the transaction is rolled back and nothing is saved.
+     */
     @Override
     @PreAuthorize("isAuthenticated() and (#newTraining?.traineeUsername() == authentication.name"
             + " or #newTraining?.trainerUsername() == authentication.name)")
@@ -101,6 +113,7 @@ public class TrainingServiceImpl implements TrainingService {
 
         // A training links the trainee to the trainer.
         trainee.getTrainers().add(trainer);
+        workloadClient.report(TrainerWorkloadEvent.of(created, WorkloadAction.ADD));
 
         log.info("Training created: '{}' (id {}), type {}, date {}, trainee {}, trainer {}",
                 name, created.getId(), trainer.getSpecialization().getTrainingTypeName(), date,

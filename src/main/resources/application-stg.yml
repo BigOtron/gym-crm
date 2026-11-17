@@ -11,6 +11,9 @@ logging:
     io.gymcrm: INFO
 
 gymcrm:
+  workload:
+    jwt:
+      secret: ${WORKLOAD_JWT_SECRET}
   security:
     jwt:
       secret: ${JWT_SECRET}

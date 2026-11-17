@@ -1,0 +1,8 @@
+eureka:
+  client:
+    enabled: false
+
+workload:
+  security:
+    jwt:
+      secret: test-only-workload-secret-with-32-bytes-at-least

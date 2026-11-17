@@ -16,7 +16,14 @@ management:
     health:
       show-details: always
 
+# Gym CRM alone: no Eureka, and trainings aren't reported to the Trainer Workload service.
+eureka:
+  client:
+    enabled: false
+
 gymcrm:
+  workload:
+    enabled: false
   security:
     jwt:
       secret: ${JWT_SECRET:local-development-only-secret-do-not-use-on-servers}

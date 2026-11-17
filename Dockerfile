@@ -1,12 +1,16 @@
+# Gym CRM. Built from the repository root (the Gradle build includes the other services' build files).
 FROM eclipse-temurin:17-jdk AS build
 WORKDIR /workspace
 
+# Build files first: the dependency layer is reused until one of them changes.
 COPY gradlew settings.gradle.kts build.gradle.kts ./
 COPY gradle gradle
-RUN ./gradlew --no-daemon dependencies > /dev/null
+COPY discovery-server/build.gradle.kts discovery-server/
+COPY trainer-workload/build.gradle.kts trainer-workload/
+RUN ./gradlew --no-daemon :dependencies > /dev/null
 
 COPY src src
-RUN ./gradlew --no-daemon bootJar -x test
+RUN ./gradlew --no-daemon :bootJar -x test
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app

@@ -4,6 +4,7 @@ import io.gymcrm.exceptions.AuthenticationException;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.LoginBlockedException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.exceptions.ServiceUnavailableException;
 import io.gymcrm.metrics.GymMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -78,6 +79,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ProblemDetail> handleConflict(ConflictException e) {
         return problem(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    /** The Trainer Workload service is down, too slow, or its circuit breaker is open. */
+    @ExceptionHandler(ServiceUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleServiceUnavailable(ServiceUnavailableException e) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -11,6 +11,8 @@ import io.gymcrm.entities.TrainingType;
 import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.integration.workload.TrainerWorkloadClient;
+import io.gymcrm.integration.workload.TrainerWorkloadSummary;
 import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.security.JwtTokenService;
 import io.gymcrm.security.Role;
@@ -47,6 +49,7 @@ public class TrainerServiceImpl implements TrainerService {
     private PasswordGenerator passwordGenerator;
     private PasswordEncoder passwordEncoder;
     private JwtTokenService tokenService;
+    private TrainerWorkloadClient workloadClient;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -71,6 +74,11 @@ public class TrainerServiceImpl implements TrainerService {
     @Autowired
     public void setUsernameGenerator(UsernameGenerator usernameGenerator) {
         this.usernameGenerator = usernameGenerator;
+    }
+
+    @Autowired
+    public void setWorkloadClient(TrainerWorkloadClient workloadClient) {
+        this.workloadClient = workloadClient;
     }
 
     @Autowired
@@ -155,6 +163,16 @@ public class TrainerServiceImpl implements TrainerService {
             throw new NotFoundException("Trainee not found: " + traineeUsername);
         }
         return trainerDao.findNotAssignedToTrainee(traineeUsername);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize(OWNER)
+    public TrainerWorkloadSummary getWorkload(String username) {
+        User user = find(username).getUser();
+        // No reported trainings yet: an empty summary rather than an error.
+        return workloadClient.findWorkload(username).orElseGet(() -> new TrainerWorkloadSummary(username,
+                user.getFirstName(), user.getLastName(), user.isActive() ? "ACTIVE" : "INACTIVE", List.of()));
     }
 
     private Trainer find(String username) {

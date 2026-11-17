@@ -17,6 +17,8 @@ public class RequiredSettingsCheck implements BeanFactoryPostProcessor, Environm
     static final String USERNAME = "spring.datasource.username";
     static final String PASSWORD = "spring.datasource.password";
     static final String JWT_SECRET = "gymcrm.security.jwt.secret";
+    static final String WORKLOAD_ENABLED = "gymcrm.workload.enabled";
+    static final String WORKLOAD_JWT_SECRET = "gymcrm.workload.jwt.secret";
 
     private Environment environment;
 
@@ -31,6 +33,9 @@ public class RequiredSettingsCheck implements BeanFactoryPostProcessor, Environm
         String username = require(USERNAME);
         require(PASSWORD);
         require(JWT_SECRET);
+        if (environment.getProperty(WORKLOAD_ENABLED, Boolean.class, true)) {
+            require(WORKLOAD_JWT_SECRET);
+        }
         log.info("Environment {}: database {} as user {}", activeProfiles(), url, username);
     }
 

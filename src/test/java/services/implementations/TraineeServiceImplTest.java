@@ -10,6 +10,11 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.exceptions.ServiceUnavailableException;
+import io.gymcrm.entities.Training;
+import io.gymcrm.integration.workload.TrainerWorkloadClient;
+import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.security.JwtTokenService;
 import io.gymcrm.security.Role;
 import io.gymcrm.services.implementations.TraineeServiceImpl;
@@ -42,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -60,6 +66,9 @@ class TraineeServiceImplTest {
 
     @Mock
     private TrainerDao trainerDao;
+
+    @Mock
+    private TrainerWorkloadClient workloadClient;
 
     @Mock
     private UsernameGenerator usernameGenerator;
@@ -84,6 +93,7 @@ class TraineeServiceImplTest {
         service.setUsernameGenerator(usernameGenerator);
         service.setPasswordGenerator(passwordGenerator);
         service.setTokenService(tokenService);
+        service.setWorkloadClient(workloadClient);
     }
 
     private Trainee givenJohn() {
@@ -248,6 +258,44 @@ class TraineeServiceImplTest {
             service.delete("John.Smith");
 
             verify(traineeDao).delete(john);
+            verifyNoInteractions(workloadClient);
+        }
+
+        private Training training(Trainee trainee, LocalDate date, int minutes) {
+            Training training = new Training();
+            training.setTrainee(trainee);
+            training.setTrainer(trainer("Anna.Lee", "pw", YOGA));
+            training.setTrainingName("Yoga");
+            training.setTrainingType(YOGA);
+            training.setTrainingDate(date);
+            training.setTrainingDuration(minutes);
+            trainee.getTrainings().add(training);
+            return training;
+        }
+
+        @Test
+        void reportsEveryDeletedTrainingToTheWorkloadService() {
+            Trainee john = givenJohn();
+            training(john, LocalDate.of(2026, 11, 3), 60);
+            training(john, LocalDate.of(2026, 12, 1), 45);
+
+            service.delete("John.Smith");
+
+            verify(workloadClient).report(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true,
+                    LocalDate.of(2026, 11, 3), 60, WorkloadAction.DELETE));
+            verify(workloadClient).report(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true,
+                    LocalDate.of(2026, 12, 1), 45, WorkloadAction.DELETE));
+            verify(traineeDao).delete(john);
+        }
+
+        @Test
+        void keepsTheTraineeWhenTheWorkloadServiceIsUnavailable() {
+            Trainee john = givenJohn();
+            training(john, LocalDate.of(2026, 11, 3), 60);
+            doThrow(new ServiceUnavailableException("down", null)).when(workloadClient).report(any());
+
+            assertThrows(ServiceUnavailableException.class, () -> service.delete("John.Smith"));
+            verify(traineeDao, never()).delete(any());
         }
 
         @Test

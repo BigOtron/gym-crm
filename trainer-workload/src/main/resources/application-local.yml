@@ -1,0 +1,5 @@
+# Running on a developer machine. Servers set WORKLOAD_JWT_SECRET instead.
+workload:
+  security:
+    jwt:
+      secret: ${WORKLOAD_JWT_SECRET:local-development-only-workload-secret-do-not-use}

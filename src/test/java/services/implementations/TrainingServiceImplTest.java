@@ -11,6 +11,10 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.exceptions.NotFoundException;
+import io.gymcrm.exceptions.ServiceUnavailableException;
+import io.gymcrm.integration.workload.TrainerWorkloadClient;
+import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.services.implementations.TrainingServiceImpl;
 import io.gymcrm.metrics.GymMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -32,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -58,6 +63,9 @@ class TrainingServiceImplTest {
     @Mock
     private TrainingTypeDao trainingTypeDao;
 
+    @Mock
+    private TrainerWorkloadClient workloadClient;
+
     private TrainingServiceImpl service;
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -70,6 +78,7 @@ class TrainingServiceImplTest {
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
         service.setTrainingTypeDao(trainingTypeDao);
+        service.setWorkloadClient(workloadClient);
     }
 
     private static NewTraining newTraining(Integer duration) {
@@ -108,6 +117,27 @@ class TrainingServiceImplTest {
         }
 
         @Test
+        void reportsTheTrainingToTheWorkloadService() {
+            givenPeople();
+            when(trainingDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            service.create(newTraining(60));
+
+            verify(workloadClient).report(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true, DATE, 60,
+                    WorkloadAction.ADD));
+        }
+
+        @Test
+        void failsWhenTheWorkloadServiceIsUnavailable() {
+            givenPeople();
+            when(trainingDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            doThrow(new ServiceUnavailableException("down", null)).when(workloadClient).report(any());
+
+            // The exception rolls back the transaction, so the saved training is undone (see the integration test).
+            assertThrows(ServiceUnavailableException.class, () -> service.create(newTraining(60)));
+        }
+
+        @Test
         void trainerAddsATraining() {
             givenPeople();
             when(trainingDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -120,7 +150,7 @@ class TrainingServiceImplTest {
             when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
 
             assertThrows(NotFoundException.class, () -> service.create(newTraining(60)));
-            verifyNoInteractions(trainerDao);
+            verifyNoInteractions(trainerDao, workloadClient);
             verify(trainingDao, never()).save(any());
         }
 

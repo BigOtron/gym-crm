@@ -20,7 +20,8 @@ class RequiredSettingsCheckTest {
                 .withProperty("spring.datasource.url", "jdbc:postgresql://${DB_HOST}:5432/gymcrm")
                 .withProperty("spring.datasource.username", "${DB_USERNAME}")
                 .withProperty("spring.datasource.password", "${DB_PASSWORD}")
-                .withProperty("gymcrm.security.jwt.secret", "${JWT_SECRET}");
+                .withProperty("gymcrm.security.jwt.secret", "${JWT_SECRET}")
+                .withProperty("gymcrm.workload.jwt.secret", "${WORKLOAD_JWT_SECRET}");
         env.setActiveProfiles("prod");
         return env;
     }
@@ -37,7 +38,8 @@ class RequiredSettingsCheckTest {
                 .withProperty("DB_HOST", "db.example")
                 .withProperty("DB_USERNAME", "gym")
                 .withProperty("DB_PASSWORD", "top-secret")
-                .withProperty("JWT_SECRET", "another-top-secret");
+                .withProperty("JWT_SECRET", "another-top-secret")
+                .withProperty("WORKLOAD_JWT_SECRET", "a-third-top-secret");
 
         try (LogCapture logs = new LogCapture(RequiredSettingsCheck.class.getName())) {
             check(env);
@@ -84,7 +86,8 @@ class RequiredSettingsCheckTest {
                 .withProperty("spring.datasource.url", "jdbc:postgresql://localhost:5432/gymcrm")
                 .withProperty("spring.datasource.username", "gymcrm")
                 .withProperty("spring.datasource.password", "gymcrm")
-                .withProperty("gymcrm.security.jwt.secret", "a-secret");
+                .withProperty("gymcrm.security.jwt.secret", "a-secret")
+                .withProperty("gymcrm.workload.jwt.secret", "another-secret");
         env.setDefaultProfiles("local");
 
         try (LogCapture logs = new LogCapture(RequiredSettingsCheck.class.getName())) {
@@ -104,5 +107,30 @@ class RequiredSettingsCheckTest {
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> check(env));
 
         assertTrue(e.getMessage().contains("JWT_SECRET"), e.getMessage());
+    }
+
+    @Test
+    void missingWorkloadSecretStopsTheStartUpAndNamesIt() {
+        MockEnvironment env = prod()
+                .withProperty("DB_HOST", "db.example")
+                .withProperty("DB_USERNAME", "gym")
+                .withProperty("DB_PASSWORD", "top-secret")
+                .withProperty("JWT_SECRET", "another-top-secret");
+
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> check(env));
+
+        assertTrue(e.getMessage().contains("WORKLOAD_JWT_SECRET"), e.getMessage());
+    }
+
+    @Test
+    void workloadSecretIsNotNeededWhenTheIntegrationIsOff() {
+        MockEnvironment env = prod()
+                .withProperty("DB_HOST", "db.example")
+                .withProperty("DB_USERNAME", "gym")
+                .withProperty("DB_PASSWORD", "top-secret")
+                .withProperty("JWT_SECRET", "another-top-secret")
+                .withProperty("gymcrm.workload.enabled", "false");
+
+        check(env);
     }
 }

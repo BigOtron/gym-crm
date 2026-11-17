@@ -58,8 +58,8 @@ class ApiDocumentationTest {
     }
 
     @Test
-    void allSeventeenEndpointsAreFound() {
-        assertEquals(17, endpoints().size());
+    void allEighteenEndpointsAreFound() {
+        assertEquals(18, endpoints().size());
     }
 
     @Test

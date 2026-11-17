@@ -15,8 +15,35 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  cloud:
+    circuitbreaker:
+      resilience4j:
+        # Run the call on the request's own thread: it keeps the transaction, the logged-in user and the
+        # transaction id. Calls that hang are stopped by the HTTP timeouts above instead of a time limiter.
+        disable-thread-pool: true
+        disable-time-limiter: true
+    loadbalancer:
+      cache:
+        # How long the list of workload instances from Eureka is reused.
+        ttl: 5s
+
 server:
   port: 8080
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+    healthcheck:
+      enabled: true
+    registry-fetch-interval-seconds: 5
+    initial-instance-info-replication-interval-seconds: 5
+    instance-info-replication-interval-seconds: 5
+  instance:
+    # Registers the container's current IP, which Docker assigns at startup (nothing is hard-coded).
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
 
 
 management:
@@ -61,6 +88,23 @@ gymcrm:
   health:
     database:
       max-response-time: 500ms
+  workload:
+    # Report trainings to the Trainer Workload service (off in the standalone profile and in tests).
+    enabled: true
+    # "trainer-workload" is the service's name in Eureka; the load balancer turns it into an address.
+    url: http://trainer-workload
+    connect-timeout: 2s
+    read-timeout: 3s
+    jwt:
+      # The signing secret is shared with the workload service and set per environment.
+      lifetime: 5m
+    circuit-breaker:
+      # Of the last 10 calls (at least 4), if half fail, fail fast for 10 s, then let 2 trial calls through.
+      sliding-window-size: 10
+      minimum-number-of-calls: 4
+      failure-rate-threshold: 50
+      wait-duration-in-open-state: 10s
+      permitted-calls-in-half-open-state: 2
 
 logging:
   # Spring Boot's own Logback setup with our pattern (transaction id from the MDC). It writes to the
@@ -73,3 +117,4 @@ logging:
     org.springframework: WARN
     org.hibernate: WARN
     com.zaxxer.hikari: WARN
+    com.netflix: WARN

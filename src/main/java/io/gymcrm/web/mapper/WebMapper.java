@@ -29,6 +29,8 @@ import io.gymcrm.web.dto.TrainerTrainingResponse;
 import io.gymcrm.web.dto.TrainerTrainingsQuery;
 import io.gymcrm.web.dto.TrainerUpdateRequest;
 import io.gymcrm.web.dto.TrainingTypeResponse;
+import io.gymcrm.web.dto.TrainerWorkloadResponse;
+import io.gymcrm.integration.workload.TrainerWorkloadSummary;
 
 import java.util.Comparator;
 import java.util.List;
@@ -137,6 +139,17 @@ public final class WebMapper {
                         t.getTrainingType().getTrainingTypeName(), t.getTrainingDuration(),
                         fullName(t.getTrainee().getUser())))
                 .toList();
+    }
+
+    public static TrainerWorkloadResponse toResponse(TrainerWorkloadSummary workload) {
+        List<TrainerWorkloadResponse.YearSummary> years = workload.years() == null ? List.of() : workload.years().stream()
+                .map(year -> new TrainerWorkloadResponse.YearSummary(year.year(), year.months().stream()
+                        .map(month -> new TrainerWorkloadResponse.MonthSummary(month.month(),
+                                month.trainingSummaryDuration()))
+                        .toList()))
+                .toList();
+        return new TrainerWorkloadResponse(workload.trainerUsername(), workload.trainerFirstName(),
+                workload.trainerLastName(), workload.trainerStatus(), years);
     }
 
     private static String fullName(User user) {

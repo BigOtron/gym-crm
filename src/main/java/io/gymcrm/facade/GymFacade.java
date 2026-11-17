@@ -14,6 +14,7 @@ import io.gymcrm.entities.Trainee;
 import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.entities.TrainingType;
+import io.gymcrm.integration.workload.TrainerWorkloadSummary;
 import io.gymcrm.services.AuthenticationService;
 import io.gymcrm.services.TraineeService;
 import io.gymcrm.services.TrainerService;
@@ -100,6 +101,10 @@ public class GymFacade {
 
     public void setTrainerActive(String username, boolean active) {
         trainerService.setActive(username, active);
+    }
+
+    public TrainerWorkloadSummary getTrainerWorkload(String username) {
+        return trainerService.getWorkload(username);
     }
 
     // Trainings

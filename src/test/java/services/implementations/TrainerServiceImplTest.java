@@ -23,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import io.gymcrm.integration.workload.TrainerWorkloadClient;
+import io.gymcrm.integration.workload.TrainerWorkloadSummary;
 import support.TestData;
 
 import java.util.List;
@@ -65,6 +67,9 @@ class TrainerServiceImplTest {
     @Mock
     private JwtTokenService tokenService;
 
+    @Mock
+    private TrainerWorkloadClient workloadClient;
+
     private TrainerServiceImpl service;
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -80,6 +85,7 @@ class TrainerServiceImplTest {
         service.setUsernameGenerator(usernameGenerator);
         service.setPasswordGenerator(passwordGenerator);
         service.setTokenService(tokenService);
+        service.setWorkloadClient(workloadClient);
     }
 
     private Trainer givenAnna() {
@@ -217,6 +223,39 @@ class TrainerServiceImplTest {
 
             assertThrows(NotFoundException.class, () -> service.getNotAssignedToTrainee("Nobody"));
             verify(trainerDao, never()).findNotAssignedToTrainee(any());
+        }
+    }
+
+    @Nested
+    class Workload {
+
+        @Test
+        void comesFromTheWorkloadService() {
+            when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(trainer("Anna.Lee", "pw", YOGA)));
+            TrainerWorkloadSummary summary = new TrainerWorkloadSummary("Anna.Lee", "Anna", "Lee", "ACTIVE",
+                    List.of(new TrainerWorkloadSummary.Year(2026, List.of(new TrainerWorkloadSummary.Month(11, 60)))));
+            when(workloadClient.findWorkload("Anna.Lee")).thenReturn(Optional.of(summary));
+
+            assertSame(summary, service.getWorkload("Anna.Lee"));
+        }
+
+        @Test
+        void isEmptyWhenNoTrainingWasReported() {
+            Trainer anna = trainer("Anna.Lee", "pw", YOGA);
+            anna.getUser().setActive(false);
+            when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(anna));
+            when(workloadClient.findWorkload("Anna.Lee")).thenReturn(Optional.empty());
+
+            assertEquals(new TrainerWorkloadSummary("Anna.Lee", "Anna", "Lee", "INACTIVE", List.of()),
+                    service.getWorkload("Anna.Lee"));
+        }
+
+        @Test
+        void unknownTrainerIsNotAskedFor() {
+            when(trainerDao.findByUsername("Nobody")).thenReturn(Optional.empty());
+
+            assertThrows(NotFoundException.class, () -> service.getWorkload("Nobody"));
+            verifyNoInteractions(workloadClient);
         }
     }
 }

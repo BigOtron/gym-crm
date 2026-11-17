@@ -1,0 +1,58 @@
+spring:
+  application:
+    # Gym CRM finds this service in Eureka by this name.
+    name: trainer-workload
+  profiles:
+    default: local
+
+server:
+  port: ${SERVER_PORT:8081}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+    # Report this service's own health (/actuator/health) to Eureka, not just "the process is running".
+    healthcheck:
+      enabled: true
+    registry-fetch-interval-seconds: 5
+    initial-instance-info-replication-interval-seconds: 5
+    instance-info-replication-interval-seconds: 5
+  instance:
+    # Registers the container's current IP, which Docker assigns at startup (nothing is hard-coded).
+    prefer-ip-address: true
+    # Heartbeat every 5 s; if 15 s pass without one, Eureka drops the instance.
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
+
+workload:
+  security:
+    jwt:
+      # Shared with Gym CRM (gymcrm.workload.jwt.secret), set per environment.
+      secret: ${WORKLOAD_JWT_SECRET}
+  logging:
+    time-format: HH:mm:ss.SSS
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always
+
+info:
+  app:
+    name: Trainer Workload
+    description: Trainers' training minutes per month
+
+logging:
+  pattern:
+    console: "%d{${workload.logging.time-format}} %-5level [%X{transactionId:--}] [%thread] %logger{36} - %msg%n"
+    file: "%d{${workload.logging.time-format}} %-5level [%X{transactionId:--}] [%thread] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    io.gymcrm: DEBUG
+    org.springframework: WARN
+    com.netflix: WARN
