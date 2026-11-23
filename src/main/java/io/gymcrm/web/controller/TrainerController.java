@@ -104,6 +104,7 @@ public class TrainerController {
     @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
     @ApiResponse(responseCode = "403", description = "Not a trainer, or someone else's workload")
     @ApiResponse(responseCode = "404", description = "No trainer with this username")
+    @ApiResponse(responseCode = "502", description = "The Trainer Workload service rejected the request (configuration)")
     @ApiResponse(responseCode = "503", description = "The Trainer Workload service is unavailable")
     public TrainerWorkloadResponse getWorkload(@Parameter(description = "Trainer's username", example = "Anna.Lee")
                                                @PathVariable String username) {

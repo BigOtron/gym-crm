@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.time.Clock;
@@ -83,6 +84,8 @@ public class WorkloadClientConfig {
                 .waitDurationInOpenState(settings.waitDurationInOpenState())
                 .permittedNumberOfCallsInHalfOpenState(settings.permittedCallsInHalfOpenState())
                 .automaticTransitionFromOpenToHalfOpenEnabled(true)
+                // A 4xx answer comes from a running service: neither a failure nor a success for the circuit.
+                .ignoreExceptions(HttpClientErrorException.class)
                 .build();
         return factory -> factory.configure(builder -> builder.circuitBreakerConfig(config), CIRCUIT_BREAKER);
     }

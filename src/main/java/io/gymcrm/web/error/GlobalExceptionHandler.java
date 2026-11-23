@@ -1,6 +1,7 @@
 package io.gymcrm.web.error;
 
 import io.gymcrm.exceptions.AuthenticationException;
+import io.gymcrm.exceptions.BadGatewayException;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.LoginBlockedException;
 import io.gymcrm.exceptions.NotFoundException;
@@ -85,6 +86,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ServiceUnavailableException.class)
     public ResponseEntity<ProblemDetail> handleServiceUnavailable(ServiceUnavailableException e) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    /** The Trainer Workload service is up but rejected our request: a configuration problem on our side. */
+    @ExceptionHandler(BadGatewayException.class)
+    public ResponseEntity<ProblemDetail> handleBadGateway(BadGatewayException e) {
+        return problem(HttpStatus.BAD_GATEWAY, e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

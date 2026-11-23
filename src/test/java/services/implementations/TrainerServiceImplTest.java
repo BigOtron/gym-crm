@@ -236,7 +236,23 @@ class TrainerServiceImplTest {
                     List.of(new TrainerWorkloadSummary.Year(2026, List.of(new TrainerWorkloadSummary.Month(11, 60)))));
             when(workloadClient.findWorkload("Anna.Lee")).thenReturn(Optional.of(summary));
 
-            assertSame(summary, service.getWorkload("Anna.Lee"));
+            assertEquals(summary, service.getWorkload("Anna.Lee"));
+        }
+
+        @Test
+        void nameAndStatusComeFromGymCrm() {
+            Trainer anna = trainer("Anna.Lee", "pw", YOGA);
+            anna.getUser().setLastName("Smith");
+            anna.getUser().setActive(false);
+            when(trainerDao.findByUsername("Anna.Lee")).thenReturn(Optional.of(anna));
+            List<TrainerWorkloadSummary.Year> years =
+                    List.of(new TrainerWorkloadSummary.Year(2026, List.of(new TrainerWorkloadSummary.Month(11, 60))));
+            // The workload service still has the details from Anna's last training.
+            when(workloadClient.findWorkload("Anna.Lee")).thenReturn(Optional.of(
+                    new TrainerWorkloadSummary("Anna.Lee", "Anna", "Lee", "ACTIVE", years)));
+
+            assertEquals(new TrainerWorkloadSummary("Anna.Lee", "Anna", "Smith", "INACTIVE", years),
+                    service.getWorkload("Anna.Lee"));
         }
 
         @Test

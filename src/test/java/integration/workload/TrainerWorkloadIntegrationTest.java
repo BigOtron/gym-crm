@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -138,6 +139,23 @@ class TrainerWorkloadIntegrationTest extends WebTestBase {
     }
 
     @Test
+    void rejectionIsA502AndDoesNotOpenTheCircuit() throws Exception {
+        WORKLOAD.respond(401, """
+                {"status":401,"detail":"Missing, invalid or expired token"}""");
+        for (int i = 0; i < 3; i++) {
+            mvc.perform(json(post("/api/trainings"), john, TRAINING))
+                    .andExpect(status().isBadGateway())
+                    .andExpect(jsonPath("$.detail").value("The trainer workload service rejected the request"));
+        }
+        assertEquals(0, trainingsOfJohn());
+
+        // Three failures would have opened the circuit (it opens after 2); rejections don't count.
+        WORKLOAD.respond(200, "");
+        mvc.perform(json(post("/api/trainings"), john, TRAINING)).andExpect(status().isOk());
+        assertEquals(4, WORKLOAD.requests().size());
+    }
+
+    @Test
     void circuitOpensAfterRepeatedFailuresAndThenFailsFast() throws Exception {
         WORKLOAD.respond(500, "");
         for (int i = 0; i < 2; i++) {
@@ -169,6 +187,20 @@ class TrainerWorkloadIntegrationTest extends WebTestBase {
         FakeWorkloadService.Request request = WORKLOAD.requests().get(0);
         assertEquals("GET", request.method());
         assertEquals("/api/trainer-workloads/Anna.Lee", request.path());
+    }
+
+    @Test
+    void deactivatedTrainerIsShownAsInactiveAlthoughTheWorkloadServiceDoesNotKnowYet() throws Exception {
+        WORKLOAD.respond(200, """
+                {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee",
+                 "trainerStatus":"ACTIVE","years":[{"year":2026,"months":[{"month":11,"trainingSummaryDuration":60}]}]}""");
+        mvc.perform(json(patch("/api/trainers/Anna.Lee/status"), anna, """
+                {"isActive":false}""")).andExpect(status().isOk());
+
+        mvc.perform(get("/api/trainers/Anna.Lee/workload").header("Authorization", anna))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trainerStatus").value("INACTIVE"))
+                .andExpect(jsonPath("$.years[0].months[0].trainingSummaryDuration").value(60));
     }
 
     @Test

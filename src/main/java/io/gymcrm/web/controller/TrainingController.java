@@ -33,6 +33,8 @@ public class TrainingController {
     @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
     @ApiResponse(responseCode = "403", description = "Neither the trainee nor the trainer of this training")
     @ApiResponse(responseCode = "404", description = "The trainee or the trainer doesn't exist")
+    @ApiResponse(responseCode = "502", description = "The Trainer Workload service rejected the training; nothing saved")
+    @ApiResponse(responseCode = "503", description = "The Trainer Workload service is unavailable; nothing saved")
     public ResponseEntity<Void> add(@Valid @RequestBody NewTrainingRequest request) {
         facade.addTraining(WebMapper.toNewTraining(request));
         return ResponseEntity.ok().build();

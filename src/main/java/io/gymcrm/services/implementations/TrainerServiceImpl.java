@@ -170,9 +170,14 @@ public class TrainerServiceImpl implements TrainerService {
     @PreAuthorize(OWNER)
     public TrainerWorkloadSummary getWorkload(String username) {
         User user = find(username).getUser();
-        // No reported trainings yet: an empty summary rather than an error.
-        return workloadClient.findWorkload(username).orElseGet(() -> new TrainerWorkloadSummary(username,
-                user.getFirstName(), user.getLastName(), user.isActive() ? "ACTIVE" : "INACTIVE", List.of()));
+        // Only the minutes come from the workload service. Its copy of the name and status changes only with the
+        // trainer's next training, so after a rename or (de)activation Gym CRM's own data is the current one.
+        // No reported trainings yet: no years rather than an error.
+        List<TrainerWorkloadSummary.Year> years = workloadClient.findWorkload(username)
+                .map(TrainerWorkloadSummary::years)
+                .orElse(List.of());
+        return new TrainerWorkloadSummary(username, user.getFirstName(), user.getLastName(),
+                user.isActive() ? "ACTIVE" : "INACTIVE", years);
     }
 
     private Trainer find(String username) {

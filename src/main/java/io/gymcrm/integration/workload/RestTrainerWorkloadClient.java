@@ -1,5 +1,6 @@
 package io.gymcrm.integration.workload;
 
+import io.gymcrm.exceptions.BadGatewayException;
 import io.gymcrm.exceptions.ServiceUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
@@ -42,7 +43,7 @@ public class RestTrainerWorkloadClient implements TrainerWorkloadClient {
                         .retrieve()
                         .toBodilessEntity(),
                 failure -> {
-                    throw unavailable("report a training of trainer " + event.trainerUsername(), failure);
+                    throw failed("report a training of trainer " + event.trainerUsername(), failure);
                 });
         log.info("Reported {} of a training on {} for trainer {} to the workload service", event.actionType(),
                 event.trainingDate(), event.trainerUsername());
@@ -63,11 +64,22 @@ public class RestTrainerWorkloadClient implements TrainerWorkloadClient {
                 return Optional.empty();
             }
         }, failure -> {
-            throw unavailable("read the workload of trainer " + trainerUsername, failure);
+            throw failed("read the workload of trainer " + trainerUsername, failure);
         });
     }
 
-    private static ServiceUnavailableException unavailable(String action, Throwable failure) {
+    /**
+     * A 4xx answer means the service is up but refuses our request (e.g. 401 when the token secrets differ):
+     * retrying won't help, so it becomes a 502 and doesn't count towards opening the circuit (see
+     * WorkloadClientConfig). Everything else (no instance, connection refused, timeout, 5xx, open circuit)
+     * is an outage: 503.
+     */
+    private static RuntimeException failed(String action, Throwable failure) {
+        if (failure instanceof HttpClientErrorException rejected) {
+            log.error("Could not {}: the workload service answered {}; check the configuration of both services "
+                    + "(e.g. WORKLOAD_JWT_SECRET)", action, rejected.getStatusCode());
+            return new BadGatewayException("The trainer workload service rejected the request", failure);
+        }
         log.error("Could not {}: {}: {}", action, failure.getClass().getSimpleName(), failure.getMessage());
         return new ServiceUnavailableException("The trainer workload service is unavailable, please try again later",
                 failure);
