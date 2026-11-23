@@ -1,9 +1,11 @@
-# Only the build files and src/ are needed to build the image.
+# Only the build files and the services' src/ folders are needed to build the images.
 .git
-.gradle
+**/.gradle
 .idea
-build
-logs
+**/build
+**/logs
 *.iml
 *.pdf
 *.patch
+postman
+.postman
