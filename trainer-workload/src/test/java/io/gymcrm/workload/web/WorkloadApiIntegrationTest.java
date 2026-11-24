@@ -1,5 +1,8 @@
 package io.gymcrm.workload.web;
 
+import io.gymcrm.workload.model.ActionType;
+import io.gymcrm.workload.service.TrainerWorkloadService;
+import io.gymcrm.workload.service.WorkloadUpdate;
 import io.gymcrm.workload.support.TestTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,38 +24,39 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** The whole service with its security, called the way Gym CRM calls it. */
+/** The whole REST API with its security, called the way Gym CRM calls it. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class WorkloadApiIntegrationTest {
 
-    private static final String WRITE = TestTokens.bearer("workload.write");
     private static final String READ = TestTokens.bearer("workload.read");
 
     @Autowired
     private MockMvc mvc;
 
+    @Autowired
+    private TrainerWorkloadService service;
+
     /** Every test uses its own trainer, so the shared in-memory data doesn't matter. */
     private final String trainer = "Trainer-" + UUID.randomUUID();
 
-    private ResultActions report(String token, String date, int minutes, String action) throws Exception {
-        return mvc.perform(post("/api/trainer-workloads")
-                .header(HttpHeaders.AUTHORIZATION, token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"trainerUsername":"%s","trainerFirstName":"Anna","trainerLastName":"Lee","isActive":true,
-                         "trainingDate":"%s","trainingDuration":%d,"actionType":"%s"}"""
-                        .formatted(trainer, date, minutes, action)));
+    /** Trainings arrive through the queue (see WorkloadMessagingIntegrationTest); here they are applied directly. */
+    private void report(String date, int minutes, ActionType action) {
+        service.apply(new WorkloadUpdate(trainer, "Anna", "Lee", true, LocalDate.parse(date), minutes, action));
+    }
+
+    private ResultActions readWorkload(String token) throws Exception {
+        return mvc.perform(get("/api/trainer-workloads/" + trainer).header(HttpHeaders.AUTHORIZATION, token));
     }
 
     @Test
-    void addAndDeleteTrainingsThenReadTheSummary() throws Exception {
-        report(WRITE, "2026-11-03", 60, "ADD").andExpect(status().isOk());
-        report(WRITE, "2026-11-20", 45, "ADD").andExpect(status().isOk());
-        report(WRITE, "2027-01-10", 30, "ADD").andExpect(status().isOk());
-        report(WRITE, "2026-11-03", 60, "DELETE").andExpect(status().isOk());
+    void readTheSummaryOfAddedAndDeletedTrainings() throws Exception {
+        report("2026-11-03", 60, ActionType.ADD);
+        report("2026-11-20", 45, ActionType.ADD);
+        report("2027-01-10", 30, ActionType.ADD);
+        report("2026-11-03", 60, ActionType.DELETE);
 
-        mvc.perform(get("/api/trainer-workloads/" + trainer).header(HttpHeaders.AUTHORIZATION, READ))
+        readWorkload(READ)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trainerUsername").value(trainer))
                 .andExpect(jsonPath("$.trainerStatus").value("ACTIVE"))
@@ -71,18 +76,15 @@ class WorkloadApiIntegrationTest {
 
     @Test
     void unknownTrainerIsNotFound() throws Exception {
-        mvc.perform(get("/api/trainer-workloads/" + trainer).header(HttpHeaders.AUTHORIZATION, READ))
-                .andExpect(status().isNotFound());
+        readWorkload(READ).andExpect(status().isNotFound());
     }
 
     @Test
     void withoutTokenIsUnauthorized() throws Exception {
-        mvc.perform(post("/api/trainer-workloads").contentType(MediaType.APPLICATION_JSON).content("{}"))
+        mvc.perform(get("/api/trainer-workloads/" + trainer))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(jsonPath("$.detail").value("Missing, invalid or expired token"));
-        mvc.perform(get("/api/trainer-workloads/" + trainer))
-                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -95,16 +97,23 @@ class WorkloadApiIntegrationTest {
                         .issuedAt(Instant.now().minusSeconds(3600)).expiresAt(Instant.now().minusSeconds(600))),
                 "Bearer not-a-jwt");
         for (String token : invalid) {
-            report(token, "2026-11-03", 60, "ADD").andExpect(status().isUnauthorized());
+            readWorkload(token).andExpect(status().isUnauthorized());
         }
     }
 
     @Test
-    void needsTheRightScope() throws Exception {
-        report(READ, "2026-11-03", 60, "ADD")
+    void needsTheReadScope() throws Exception {
+        readWorkload(TestTokens.bearer("workload.write"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.detail").value("The token does not allow this operation"));
-        mvc.perform(get("/api/trainer-workloads/" + trainer).header(HttpHeaders.AUTHORIZATION, WRITE))
+    }
+
+    @Test
+    void trainingsCanNoLongerBeReportedOverRest() throws Exception {
+        mvc.perform(post("/api/trainer-workloads")
+                        .header(HttpHeaders.AUTHORIZATION, TestTokens.bearer("workload.read", "workload.write"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
                 .andExpect(status().isForbidden());
     }
 

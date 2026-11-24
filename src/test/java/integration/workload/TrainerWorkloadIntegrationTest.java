@@ -11,6 +11,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.ResultActions;
 import support.FakeWorkloadService;
 import support.WebTestBase;
 
@@ -20,31 +21,31 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Gym CRM with the real workload client: load balancer, service token, transaction id, timeouts and
+ * Reading workloads with the real REST client: load balancer, service token, transaction id, timeouts and
  * circuit breaker. The workload service is a fake, found under its Eureka name through Spring Cloud's
- * simple discovery (Eureka itself is off in tests).
+ * simple discovery (Eureka itself is off in tests). Reporting trainings goes through the message queue
+ * instead, see WorkloadMessagingIntegrationTest.
  */
 class TrainerWorkloadIntegrationTest extends WebTestBase {
 
     private static final String SECRET = "test-only-workload-secret-with-32-bytes-at-least";
-    private static final FakeWorkloadService WORKLOAD = new FakeWorkloadService();
+    private static final FakeWorkloadService SERVICE = new FakeWorkloadService();
 
-    private static final String TRAINING = """
-            {"traineeUsername":"John.Smith","trainerUsername":"Anna.Lee","trainingName":"Evening yoga",
-             "trainingDate":"2026-11-20","trainingDuration":60}""";
+    private static final String WORKLOAD = """
+            {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee",
+             "trainerStatus":"ACTIVE","years":[{"year":2026,"months":[{"month":11,"trainingSummaryDuration":60}]}]}""";
 
     @DynamicPropertySource
     static void workloadService(DynamicPropertyRegistry registry) {
         registry.add("gymcrm.workload.enabled", () -> "true");
-        registry.add("spring.cloud.discovery.client.simple.instances.trainer-workload[0].uri", WORKLOAD::url);
+        registry.add("spring.activemq.broker-url", () -> WorkloadMessagingIntegrationTest.BROKER);
+        registry.add("spring.cloud.discovery.client.simple.instances.trainer-workload[0].uri", SERVICE::url);
         registry.add("gymcrm.workload.read-timeout", () -> "300ms");
         // Open after 2 failed calls in a row and stay open, so the tests can see it.
         registry.add("gymcrm.workload.circuit-breaker.sliding-window-size", () -> "2");
@@ -57,126 +58,84 @@ class TrainerWorkloadIntegrationTest extends WebTestBase {
 
     @BeforeEach
     void resetWorkloadService() {
-        WORKLOAD.reset();
+        SERVICE.reset();
         // find, not circuitBreaker(...): that would create it here with default settings instead of ours.
         circuitBreakers.getCircuitBreakerRegistry().find("trainer-workload").ifPresent(CircuitBreaker::reset);
     }
 
     @AfterAll
     static void stopWorkloadService() {
-        WORKLOAD.close();
+        SERVICE.close();
     }
 
-    private int trainingsOfJohn() throws Exception {
-        String body = mvc.perform(get("/api/trainees/John.Smith/trainings").header("Authorization", john))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return body.equals("[]") ? 0 : body.split("\"trainingName\"").length - 1;
+    private ResultActions readAnnasWorkload() throws Exception {
+        return mvc.perform(get("/api/trainers/Anna.Lee/workload").header("Authorization", anna));
     }
 
     @Test
-    void addedTrainingIsReportedWithAServiceTokenAndTheTransactionId() throws Exception {
-        String transactionId = mvc.perform(json(post("/api/trainings"), john, TRAINING)
-                        .header("X-Transaction-Id", "tx-add-training"))
+    void readsWithAReadOnlyServiceTokenAndTheTransactionId() throws Exception {
+        SERVICE.respond(200, WORKLOAD);
+
+        String transactionId = mvc.perform(get("/api/trainers/Anna.Lee/workload")
+                        .header("Authorization", anna)
+                        .header("X-Transaction-Id", "tx-read-workload"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getHeader("X-Transaction-Id");
 
-        List<FakeWorkloadService.Request> requests = WORKLOAD.requests();
-        assertEquals(1, requests.size());
-        FakeWorkloadService.Request request = requests.get(0);
-        assertEquals("POST", request.method());
-        assertEquals("/api/trainer-workloads", request.path());
+        FakeWorkloadService.Request request = SERVICE.requests().get(0);
         assertEquals(transactionId, request.transactionId());
-        assertTrue(request.body().contains("\"trainerUsername\":\"Anna.Lee\""), request.body());
-        assertTrue(request.body().contains("\"trainerFirstName\":\"Anna\""), request.body());
-        assertTrue(request.body().contains("\"isActive\":true"), request.body());
-        assertTrue(request.body().contains("\"trainingDate\":\"2026-11-20\""), request.body());
-        assertTrue(request.body().contains("\"trainingDuration\":60"), request.body());
-        assertTrue(request.body().contains("\"actionType\":\"ADD\""), request.body());
-
         Jwt token = decode(request.authorization());
         assertEquals("gym-crm", token.getClaimAsString("iss"));
         assertEquals(List.of("trainer-workload"), token.getAudience());
-        assertEquals("workload.write workload.read", token.getClaimAsString("scope"));
+        assertEquals("workload.read", token.getClaimAsString("scope"));
     }
 
     @Test
-    void deletingATraineeReportsEachOfTheirTrainings() throws Exception {
-        addTraining(john, "Anna.Lee", "Yoga 1", "2026-11-20");
-        addTraining(john, "David.Brown", "Lifting", "2026-12-01");
-        WORKLOAD.reset();
+    void timeoutReturns503() throws Exception {
+        SERVICE.delay(1000);
 
-        mvc.perform(delete("/api/trainees/John.Smith").header("Authorization", john))
-                .andExpect(status().isOk());
-
-        List<FakeWorkloadService.Request> requests = WORKLOAD.requests();
-        assertEquals(2, requests.size());
-        assertTrue(requests.stream().allMatch(r -> r.body().contains("\"actionType\":\"DELETE\"")));
-        assertTrue(requests.stream().anyMatch(r -> r.body().contains("\"trainerUsername\":\"Anna.Lee\"")));
-        assertTrue(requests.stream().anyMatch(r -> r.body().contains("\"trainerUsername\":\"David.Brown\"")));
-    }
-
-    @Test
-    void timeoutReturns503AndTheTrainingIsNotSaved() throws Exception {
-        WORKLOAD.delay(1000);
-
-        mvc.perform(json(post("/api/trainings"), john, TRAINING))
+        readAnnasWorkload()
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.detail")
                         .value("The trainer workload service is unavailable, please try again later"));
-
-        assertEquals(0, trainingsOfJohn());
-    }
-
-    @Test
-    void errorFromTheWorkloadServiceKeepsTheTrainee() throws Exception {
-        addTraining(john, "Anna.Lee", "Yoga 1", "2026-11-20");
-        WORKLOAD.respond(500, "");
-
-        mvc.perform(delete("/api/trainees/John.Smith").header("Authorization", john))
-                .andExpect(status().isServiceUnavailable());
-
-        assertEquals(1, trainingsOfJohn());
     }
 
     @Test
     void rejectionIsA502AndDoesNotOpenTheCircuit() throws Exception {
-        WORKLOAD.respond(401, """
+        SERVICE.respond(401, """
                 {"status":401,"detail":"Missing, invalid or expired token"}""");
         for (int i = 0; i < 3; i++) {
-            mvc.perform(json(post("/api/trainings"), john, TRAINING))
+            readAnnasWorkload()
                     .andExpect(status().isBadGateway())
                     .andExpect(jsonPath("$.detail").value("The trainer workload service rejected the request"));
         }
-        assertEquals(0, trainingsOfJohn());
 
         // Three failures would have opened the circuit (it opens after 2); rejections don't count.
-        WORKLOAD.respond(200, "");
-        mvc.perform(json(post("/api/trainings"), john, TRAINING)).andExpect(status().isOk());
-        assertEquals(4, WORKLOAD.requests().size());
+        SERVICE.respond(200, WORKLOAD);
+        readAnnasWorkload().andExpect(status().isOk());
+        assertEquals(4, SERVICE.requests().size());
     }
 
     @Test
     void circuitOpensAfterRepeatedFailuresAndThenFailsFast() throws Exception {
-        WORKLOAD.respond(500, "");
+        SERVICE.respond(500, "");
         for (int i = 0; i < 2; i++) {
-            mvc.perform(json(post("/api/trainings"), john, TRAINING)).andExpect(status().isServiceUnavailable());
+            readAnnasWorkload().andExpect(status().isServiceUnavailable());
         }
-        assertEquals(2, WORKLOAD.requests().size());
+        assertEquals(2, SERVICE.requests().size());
 
-        WORKLOAD.respond(200, "");
-        mvc.perform(json(post("/api/trainings"), john, TRAINING)).andExpect(status().isServiceUnavailable());
+        SERVICE.respond(200, WORKLOAD);
+        readAnnasWorkload().andExpect(status().isServiceUnavailable());
 
         // Open circuit: the call was refused without reaching the workload service.
-        assertEquals(2, WORKLOAD.requests().size());
+        assertEquals(2, SERVICE.requests().size());
     }
 
     @Test
     void trainerSeesTheirWorkload() throws Exception {
-        WORKLOAD.respond(200, """
-                {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee",
-                 "trainerStatus":"ACTIVE","years":[{"year":2026,"months":[{"month":11,"trainingSummaryDuration":60}]}]}""");
+        SERVICE.respond(200, WORKLOAD);
 
-        mvc.perform(get("/api/trainers/Anna.Lee/workload").header("Authorization", anna))
+        readAnnasWorkload()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trainerUsername").value("Anna.Lee"))
                 .andExpect(jsonPath("$.trainerStatus").value("ACTIVE"))
@@ -184,20 +143,18 @@ class TrainerWorkloadIntegrationTest extends WebTestBase {
                 .andExpect(jsonPath("$.years[0].months[0].month").value(11))
                 .andExpect(jsonPath("$.years[0].months[0].trainingSummaryDuration").value(60));
 
-        FakeWorkloadService.Request request = WORKLOAD.requests().get(0);
+        FakeWorkloadService.Request request = SERVICE.requests().get(0);
         assertEquals("GET", request.method());
         assertEquals("/api/trainer-workloads/Anna.Lee", request.path());
     }
 
     @Test
     void deactivatedTrainerIsShownAsInactiveAlthoughTheWorkloadServiceDoesNotKnowYet() throws Exception {
-        WORKLOAD.respond(200, """
-                {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee",
-                 "trainerStatus":"ACTIVE","years":[{"year":2026,"months":[{"month":11,"trainingSummaryDuration":60}]}]}""");
+        SERVICE.respond(200, WORKLOAD);
         mvc.perform(json(patch("/api/trainers/Anna.Lee/status"), anna, """
                 {"isActive":false}""")).andExpect(status().isOk());
 
-        mvc.perform(get("/api/trainers/Anna.Lee/workload").header("Authorization", anna))
+        readAnnasWorkload()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trainerStatus").value("INACTIVE"))
                 .andExpect(jsonPath("$.years[0].months[0].trainingSummaryDuration").value(60));
@@ -205,10 +162,10 @@ class TrainerWorkloadIntegrationTest extends WebTestBase {
 
     @Test
     void trainerWithoutReportedTrainingsHasAnEmptyWorkload() throws Exception {
-        WORKLOAD.respond(404, """
+        SERVICE.respond(404, """
                 {"status":404,"detail":"No workload found for trainer Anna.Lee"}""");
 
-        mvc.perform(get("/api/trainers/Anna.Lee/workload").header("Authorization", anna))
+        readAnnasWorkload()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trainerFirstName").value("Anna"))
                 .andExpect(jsonPath("$.years").isEmpty());
@@ -221,7 +178,7 @@ class TrainerWorkloadIntegrationTest extends WebTestBase {
         mvc.perform(get("/api/trainers/Anna.Lee/workload").header("Authorization", david))
                 .andExpect(status().isForbidden());
 
-        assertTrue(WORKLOAD.requests().isEmpty());
+        assertTrue(SERVICE.requests().isEmpty());
     }
 
     private static Jwt decode(String authorization) {

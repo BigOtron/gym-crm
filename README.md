@@ -3,19 +3,23 @@
 A REST API for a gym CRM: trainee and trainer profiles, the trainees' trainers, trainings and training types.
 A Spring Boot application secured with Spring Security and JWT, storing its data in PostgreSQL through Hibernate.
 
-The repository holds three services, each a Gradle project with its own Docker image:
+The repository holds three services, each a Gradle project with its own Docker image, plus an ActiveMQ broker:
 
 | Service                  | Folder              | Port | What it does                                                         |
 |--------------------------|---------------------|------|----------------------------------------------------------------------|
 | Gym CRM                  | `/` (root)          | 8080 | The main API. Reports every added or deleted training.               |
 | Trainer Workload         | `trainer-workload/` | 8081 | Sums each trainer's training minutes per month (in-memory database). |
 | Eureka Discovery Server  | `discovery-server/` | 8761 | The registry where the other two register and find each other.      |
+| ActiveMQ Classic broker  | (Docker image)      | 61616, console 8161 | Carries added and deleted trainings to Trainer Workload. |
 
 ```
- client ──► Gym CRM ──(1) where is "trainer-workload"?──► Eureka ◄──registers── Trainer Workload
-               │                                                                    ▲
-               └──(2) POST /api/trainer-workloads, service JWT, X-Transaction-Id ───┘
-                      through a circuit breaker, with connect and read timeouts
+                 writes (asynchronous): an ADD or DELETE message per training, JSON + transactionId
+ client ──► Gym CRM ──► ActiveMQ queue "trainer-workload.updates" ──► listener in Trainer Workload
+               │                                       invalid messages ─► "trainer-workload.updates.DLQ"
+               │
+               │  reads (synchronous): where is "trainer-workload"? ──► Eureka ◄── registers ──┐
+               └──► GET /api/trainer-workloads/{username}, service JWT, X-Transaction-Id ──► Trainer Workload
+                    through a circuit breaker, with connect and read timeouts
 ```
 
 ## Tech stack
@@ -26,6 +30,7 @@ The repository holds three services, each a Gradle project with its own Docker i
 - Hibernate ORM 7 (JPA), HikariCP, PostgreSQL; H2 for tests and the `standalone` profile
 - Spring Boot Actuator, Micrometer with Prometheus
 - Spring Cloud: Netflix Eureka (discovery), Spring Cloud LoadBalancer, Circuit Breaker with Resilience4j
+- Spring JMS with Apache ActiveMQ Classic 6 (asynchronous messaging, dead letter queue)
 - Jackson 3 for JSON, Hibernate Validator for request validation
 - Swagger (OpenAPI 3) annotations for API documentation
 - SLF4J + Logback, Lombok
@@ -101,20 +106,24 @@ curl -i -X POST -H "Authorization: Bearer <token>" localhost:8080/api/auth/logou
 ./gradlew :trainer-workload:test   # one service
 ```
 
-The tests use an in-memory H2 database and no Eureka, so nothing else needs to run. Coverage reports are in
+The tests use an in-memory H2 database, an in-memory ActiveMQ broker and no Eureka, so nothing else needs to
+run. Coverage reports are in
 `build/reports/jacoco/test/html` of each service.
 
 ### All three services without Docker
 
 ```bash
 ./gradlew bootJar
+docker compose up -d activemq                                  # the broker, on localhost:61616
 java -jar discovery-server/build/libs/discovery-server.jar     # http://localhost:8761
 java -jar trainer-workload/build/libs/trainer-workload.jar     # registers as TRAINER-WORKLOAD
 ./gradlew bootRun                                              # Gym CRM (local profile, needs PostgreSQL)
 ```
 
 The local profiles of Gym CRM and Trainer Workload share a development-only service-token secret; on servers
-both get the same `WORKLOAD_JWT_SECRET`.
+both get the same `WORKLOAD_JWT_SECRET`. Both connect to the broker at `ACTIVEMQ_URL` (default
+`tcp://localhost:61616`) as `ACTIVEMQ_USER` / `ACTIVEMQ_PASSWORD`; the compose file sets these for the
+`activemq` container.
 
 ## Running in Docker
 
@@ -126,18 +135,23 @@ because the Gradle build spans the three folders.
 ### Everything with Docker Compose (`compose.yml`)
 
 ```bash
-docker compose up -d --build       # postgres, discovery-server, trainer-workload, gym-crm on gymcrm-net
+docker compose up -d --build       # postgres, activemq, discovery-server, trainer-workload, gym-crm on gymcrm-net
 docker compose ps                  # wait until every service shows "(healthy)"
 ```
 
 - Eureka dashboard: http://localhost:8761 lists `GYM-CRM` and `TRAINER-WORKLOAD`, both `UP`.
+- ActiveMQ console: http://localhost:8161/admin/queues.jsp (admin / admin) shows the queue
+  `trainer-workload.updates` (messages enqueued and dequeued, consumers) and the dead letter queue.
 - Containers talk to the database and to Eureka by their compose service names (`postgres`,
   `discovery-server`). Gym CRM calls the workload service by its Eureka name, `http://trainer-workload`; the
   load balancer looks up the instance's current address in Eureka. No IP address is written anywhere.
-- Start-up order: the workload service and Gym CRM wait until Eureka (and Gym CRM until PostgreSQL) passes its
-  health check, not just until the container started. Gym CRM doesn't wait for the workload service.
-- Ports and the shared secret can be changed: `APP_PORT`, `WORKLOAD_PORT`, `EUREKA_PORT`,
-  `WORKLOAD_JWT_SECRET` (e.g. in a `.env` file next to `compose.yml`).
+- Start-up order: the workload service and Gym CRM wait until Eureka and the broker (and Gym CRM until
+  PostgreSQL) pass their health checks, not just until the containers started. Gym CRM doesn't wait for the
+  workload service.
+- Ports and secrets can be changed: `APP_PORT`, `WORKLOAD_PORT`, `EUREKA_PORT`, `ACTIVEMQ_CONSOLE_PORT`,
+  `WORKLOAD_JWT_SECRET`, `ACTIVEMQ_USER`, `ACTIVEMQ_PASSWORD`, `ACTIVEMQ_WEB_USER`, `ACTIVEMQ_WEB_PASSWORD`
+  (e.g. in a `.env` file next to `compose.yml`).
+- The broker keeps its messages in the `activemq-data` volume, so queued trainings survive a restart.
 
 Try the integration:
 
@@ -146,11 +160,24 @@ Try the integration:
 curl -H "Authorization: Bearer $TRAINER_TOKEN" localhost:8080/api/trainers/Anna.Lee/workload
 docker compose logs gym-crm trainer-workload | grep <X-Transaction-Id of the request>   # both services
 
-# The workload service is unavailable: adding a training answers 503 and saves nothing.
+# The workload service is down: adding trainings still works, the messages wait in the queue.
 docker compose stop trainer-workload
-#   the first calls fail on connect, then the circuit opens and calls are refused immediately
+#   add trainings (200); the console shows them as "pending" in trainer-workload.updates
+#   reading a workload answers 503 (first on connect, then the circuit opens and refuses immediately)
 docker compose start trainer-workload
-#   it registers again within seconds, the circuit lets trial calls through and closes: 200 again
+#   it processes the waiting messages at once; it registers again within seconds, reads answer 200 again
+
+# The broker is down: adding a training answers 503 and saves nothing; everything else keeps working.
+docker compose stop activemq
+docker compose start activemq    # Gym CRM reconnects with the next message, the listener within 5 s
+
+# An invalid message (required information missing) goes to the dead letter queue with the reason.
+# Send it through the broker's REST API (or the console's "Send" page):
+curl -u admin:admin "http://localhost:8161/api/message/trainer-workload.updates?type=queue" \
+  --data-urlencode 'body={"trainerUsername":"Anna.Lee","trainingDuration":60,"actionType":"ADD"}'
+docker compose logs trainer-workload | grep "dead letter"
+#   ... Invalid message: isActive must not be null, trainerFirstName must not be blank, ...
+#   the console lists it in trainer-workload.updates.DLQ, with the reason in the deadLetterReason property
 
 # Eureka restarts: both services register again by themselves (heartbeat every 5 s).
 docker compose restart discovery-server
@@ -165,7 +192,8 @@ Each image also runs on its own:
 
 ```bash
 docker run -d -p 8080:8080 gym-crm:1.0                    # standalone profile: H2, no Eureka, no workload calls
-docker run -d -p 8081:8081 -e WORKLOAD_JWT_SECRET=... -e EUREKA_URL=http://<eureka-host>:8761/eureka trainer-workload:1.0
+docker run -d -p 8081:8081 -e WORKLOAD_JWT_SECRET=... -e EUREKA_URL=http://<eureka-host>:8761/eureka \
+  -e ACTIVEMQ_URL=tcp://<broker-host>:61616 -e ACTIVEMQ_USER=... -e ACTIVEMQ_PASSWORD=... trainer-workload:1.0
 docker run -d -p 8761:8761 gymcrm-discovery-server:1.0
 ```
 
@@ -240,21 +268,46 @@ Every log line contains the request's transaction id, which is also returned in 
 
 Adding a training (14) reports it to the Trainer Workload service (`ADD`). A training can only be deleted by
 deleting its trainee (7: the trainee's trainings are deleted with them), which reports each of the trainee's
-trainings (`DELETE`). If the workload service can't be reached in time, these requests answer **503** and change
-nothing, so both services stay consistent.
+trainings (`DELETE`). The reports are messages on an ActiveMQ queue:
+
+- **Asynchronous.** Gym CRM answers without waiting for the workload service; if that service is down, the
+  messages wait in the queue (stored on disk by the broker) and are processed when it is back.
+- **Only for committed changes.** The messages are sent in a JMS transaction tied to the database transaction:
+  they reach the queue only after the commit, and are dropped on a rollback. Deleting a trainee sends all of
+  their trainings' `DELETE`s or none.
+- **Broker down.** If the broker can't be reached, these two requests answer **503** and change nothing; all
+  other requests keep working.
+- **In order.** The workload service processes the queue with a single consumer, so a training's `DELETE` can't
+  overtake its `ADD`.
+
+Reading a workload (19) stays a synchronous REST call, because the caller needs the answer right away.
 
 ### Trainer Workload API (port 8081)
 
 | Operation                                  | Method and URL                                                     | Scope            |
 |--------------------------------------------|--------------------------------------------------------------------|------------------|
-| Add or remove a training's minutes         | `POST /api/trainer-workloads`                                      | `workload.write` |
 | A trainer's minutes per year and month     | `GET /api/trainer-workloads/{username}`                            | `workload.read`  |
 | A trainer's minutes in one month           | `GET /api/trainer-workloads/{username}/years/{year}/months/{month}` | `workload.read`  |
+
+Added and deleted trainings arrive on the queue `trainer-workload.updates` as JSON text messages, with Gym
+CRM's transaction id in the `transactionId` message property:
 
 ```json
 {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee","isActive":true,
  "trainingDate":"2026-11-20","trainingDuration":60,"actionType":"ADD"}
 ```
+
+Every field is required. A message that can't be processed goes to the dead letter queue
+`trainer-workload.updates.DLQ`, with its original body and the reason in the `deadLetterReason` property:
+
+- **Invalid** (not JSON, a field missing or invalid): moved at once, since retrying can't fix it.
+  Example reason: `Invalid message: trainingDate must not be null`.
+- **Processing failed**: the transaction is rolled back and ActiveMQ delivers the message again after 1 s,
+  2 s, 4 s; if the 4th attempt fails too, it is moved with a reason such as `Failed 4 times: ...`.
+
+A dead letter doesn't block the queue: the next message is processed normally.
+
+A workload response:
 
 ```json
 {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee","trainerStatus":"ACTIVE",
@@ -263,7 +316,8 @@ nothing, so both services stay consistent.
 
 Only Gym CRM can call it: each call carries a short-lived JWT (5 minutes) signed with `WORKLOAD_JWT_SECRET`, a
 secret the two services share and that is separate from the one for user tokens. The token must have issuer
-`gym-crm`, audience `trainer-workload` and the scope of the operation. Every request gets the caller's
+`gym-crm`, audience `trainer-workload` and the scope `workload.read`. The queue is protected by the broker's
+login instead. Every request gets the caller's
 `X-Transaction-Id`, so one request can be followed through the logs of both services.
 
 The request and response fields, and every possible error, are documented with Swagger annotations in the

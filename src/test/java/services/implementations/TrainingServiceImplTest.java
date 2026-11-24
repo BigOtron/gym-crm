@@ -12,8 +12,8 @@ import io.gymcrm.entities.Trainer;
 import io.gymcrm.entities.Training;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.exceptions.ServiceUnavailableException;
-import io.gymcrm.integration.workload.TrainerWorkloadClient;
 import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.TrainerWorkloadPublisher;
 import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.services.implementations.TrainingServiceImpl;
 import io.gymcrm.metrics.GymMetrics;
@@ -64,7 +64,7 @@ class TrainingServiceImplTest {
     private TrainingTypeDao trainingTypeDao;
 
     @Mock
-    private TrainerWorkloadClient workloadClient;
+    private TrainerWorkloadPublisher workloadPublisher;
 
     private TrainingServiceImpl service;
 
@@ -78,7 +78,7 @@ class TrainingServiceImplTest {
         service.setTraineeDao(traineeDao);
         service.setTrainerDao(trainerDao);
         service.setTrainingTypeDao(trainingTypeDao);
-        service.setWorkloadClient(workloadClient);
+        service.setWorkloadPublisher(workloadPublisher);
     }
 
     private static NewTraining newTraining(Integer duration) {
@@ -123,15 +123,15 @@ class TrainingServiceImplTest {
 
             service.create(newTraining(60));
 
-            verify(workloadClient).report(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true, DATE, 60,
+            verify(workloadPublisher).publish(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true, DATE, 60,
                     WorkloadAction.ADD));
         }
 
         @Test
-        void failsWhenTheWorkloadServiceIsUnavailable() {
+        void failsWhenTheMessageBrokerIsUnavailable() {
             givenPeople();
             when(trainingDao.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            doThrow(new ServiceUnavailableException("down", null)).when(workloadClient).report(any());
+            doThrow(new ServiceUnavailableException("down", null)).when(workloadPublisher).publish(any());
 
             // The exception rolls back the transaction, so the saved training is undone (see the integration test).
             assertThrows(ServiceUnavailableException.class, () -> service.create(newTraining(60)));
@@ -150,7 +150,7 @@ class TrainingServiceImplTest {
             when(traineeDao.findByUsername("John.Smith")).thenReturn(Optional.empty());
 
             assertThrows(NotFoundException.class, () -> service.create(newTraining(60)));
-            verifyNoInteractions(trainerDao, workloadClient);
+            verifyNoInteractions(trainerDao, workloadPublisher);
             verify(trainingDao, never()).save(any());
         }
 

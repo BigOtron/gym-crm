@@ -4,6 +4,19 @@ spring:
     name: trainer-workload
   profiles:
     default: local
+  activemq:
+    broker-url: ${ACTIVEMQ_URL:tcp://localhost:61616}
+    user: ${ACTIVEMQ_USER:}
+    password: ${ACTIVEMQ_PASSWORD:}
+  jms:
+    listener:
+      session:
+        # A message is removed from the queue only when the listener returns normally.
+        transacted: true
+    template:
+      session:
+        # Messages to the dead letter queue are sent in the listener's transaction.
+        transacted: true
 
 server:
   port: ${SERVER_PORT:8081}
@@ -30,10 +43,24 @@ workload:
     jwt:
       # Shared with Gym CRM (gymcrm.workload.jwt.secret), set per environment.
       secret: ${WORKLOAD_JWT_SECRET}
+  messaging:
+    # Gym CRM sends added and deleted trainings here.
+    queue: trainer-workload.updates
+    # Invalid messages, and messages that failed every attempt, with the reason in "deadLetterReason".
+    dead-letter-queue: trainer-workload.updates.DLQ
+    # 1 try + 3 retries, waiting 1 s, 2 s, 4 s.
+    max-attempts: 4
+    redelivery-delay: 1s
+    back-off-multiplier: 2
   logging:
     time-format: HH:mm:ss.SSS
 
 management:
+  health:
+    jms:
+      # The REST API works without the broker, and the listener reconnects by itself: a broker outage
+      # must not mark this service DOWN in Eureka (Gym CRM would stop reading workloads from it).
+      enabled: false
   endpoints:
     web:
       exposure:

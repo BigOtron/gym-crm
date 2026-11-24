@@ -15,6 +15,18 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  activemq:
+    # The broker that carries added and deleted trainings to the Trainer Workload service. A broker that
+    # doesn't answer is given up on after 2 s (503) instead of the default 30 s.
+    broker-url: ${ACTIVEMQ_URL:tcp://localhost:61616?connectionTimeout=2000}
+    user: ${ACTIVEMQ_USER:}
+    password: ${ACTIVEMQ_PASSWORD:}
+  jms:
+    template:
+      session:
+        # Ties each message to the database transaction: sent after the commit, dropped on a rollback.
+        transacted: true
+
   cloud:
     circuitbreaker:
       resilience4j:
@@ -47,6 +59,11 @@ eureka:
 
 
 management:
+  health:
+    jms:
+      # Like the workload service, the broker is not needed to run Gym CRM: an outage gives 503s when adding
+      # a training or deleting a trainee, but must not mark the whole application DOWN.
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -91,7 +108,10 @@ gymcrm:
   workload:
     # Report trainings to the Trainer Workload service (off in the standalone profile and in tests).
     enabled: true
-    # "trainer-workload" is the service's name in Eureka; the load balancer turns it into an address.
+    # Added and deleted trainings are sent here (the service's listener reads them).
+    queue: trainer-workload.updates
+    # Workloads are read over REST: "trainer-workload" is the service's name in Eureka; the load balancer
+    # turns it into an address.
     url: http://trainer-workload
     connect-timeout: 2s
     read-timeout: 3s

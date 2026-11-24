@@ -18,8 +18,8 @@ import org.springframework.web.client.RestClient;
 import java.time.Clock;
 
 /**
- * Wiring of the Trainer Workload client: either the real one (gymcrm.workload.enabled=true) or one that
- * does nothing.
+ * Wiring of the Trainer Workload REST client (reads): either the real one (gymcrm.workload.enabled=true)
+ * or one that knows no workload.
  */
 @Slf4j
 @Configuration
@@ -31,7 +31,7 @@ public class WorkloadClientConfig {
     @Bean
     @ConditionalOnProperty(name = "gymcrm.workload.enabled", havingValue = "false")
     public TrainerWorkloadClient disabledTrainerWorkloadClient() {
-        log.warn("Trainer workload integration is disabled: trainings are not reported");
+        log.warn("Trainer workload integration is disabled: trainings are not reported, no workload is shown");
         return new DisabledTrainerWorkloadClient();
     }
 

@@ -24,7 +24,8 @@ public class WorkloadTokenProvider {
 
     static final String ISSUER = "gym-crm";
     static final String AUDIENCE = "trainer-workload";
-    static final String SCOPES = "workload.write workload.read";
+    /** Only reads go over REST now; changes go through the message queue. */
+    static final String SCOPES = "workload.read";
 
     private static final int MIN_SECRET_BYTES = 32;
 

@@ -1,5 +1,8 @@
 x-workload-secret: &workload-secret ${WORKLOAD_JWT_SECRET:-docker-demo-only-workload-secret-change-me}
 x-eureka-url: &eureka-url http://discovery-server:8761/eureka
+x-activemq-url: &activemq-url tcp://activemq:61616?connectionTimeout=2000
+x-activemq-user: &activemq-user ${ACTIVEMQ_USER:-gymcrm}
+x-activemq-password: &activemq-password ${ACTIVEMQ_PASSWORD:-docker-demo-only-broker-password}
 
 services:
   postgres:
@@ -18,6 +21,32 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Carries added and deleted trainings from Gym CRM to the Trainer Workload service.
+  activemq:
+    image: apache/activemq-classic:6.2.0
+    container_name: gymcrm-activemq
+    environment:
+      # Clients must log in with this user (the image turns on authentication when it is set).
+      ACTIVEMQ_CONNECTION_USER: *activemq-user
+      ACTIVEMQ_CONNECTION_PASSWORD: *activemq-password
+      # The web console at http://localhost:8161/admin (queues, messages, dead letters).
+      ACTIVEMQ_WEB_USER: ${ACTIVEMQ_WEB_USER:-admin}
+      ACTIVEMQ_WEB_PASSWORD: ${ACTIVEMQ_WEB_PASSWORD:-admin}
+    ports:
+      - "${ACTIVEMQ_CONSOLE_PORT:-8161}:8161"
+    volumes:
+      # Persistent messages are stored on disk: queued trainings survive a broker restart.
+      - activemq-data:/opt/apache-activemq/data
+    networks:
+      - gymcrm-net
+    healthcheck:
+      # The broker accepts connections on its OpenWire port.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/61616'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
 
   discovery-server:
     build:
@@ -40,6 +69,9 @@ services:
     environment:
       EUREKA_URL: *eureka-url
       WORKLOAD_JWT_SECRET: *workload-secret
+      ACTIVEMQ_URL: *activemq-url
+      ACTIVEMQ_USER: *activemq-user
+      ACTIVEMQ_PASSWORD: *activemq-password
     ports:
       - "${WORKLOAD_PORT:-8081}:8081"
     networks:
@@ -47,6 +79,8 @@ services:
     depends_on:
       # Register only once Eureka answers its health check (not just once its container started).
       discovery-server:
+        condition: service_healthy
+      activemq:
         condition: service_healthy
     restart: unless-stopped
 
@@ -61,6 +95,9 @@ services:
       DB_PASSWORD: gymcrm
       EUREKA_URL: *eureka-url
       WORKLOAD_JWT_SECRET: *workload-secret
+      ACTIVEMQ_URL: *activemq-url
+      ACTIVEMQ_USER: *activemq-user
+      ACTIVEMQ_PASSWORD: *activemq-password
     ports:
       - "${APP_PORT:-8080}:8080"
     networks:
@@ -70,8 +107,10 @@ services:
         condition: service_healthy
       discovery-server:
         condition: service_healthy
-      # Deliberately not the Trainer Workload service: Gym CRM starts without it and answers 503 for
-      # trainings while it is unavailable (timeouts + circuit breaker).
+      activemq:
+        condition: service_healthy
+      # Deliberately not the Trainer Workload service: Gym CRM starts without it. Trainings wait in the
+      # queue until it is back; only reading a workload answers 503 meanwhile (timeouts + circuit breaker).
     restart: unless-stopped
 
 networks:
@@ -81,3 +120,4 @@ networks:
 
 volumes:
   gymcrm-data:
+  activemq-data:

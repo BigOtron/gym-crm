@@ -11,8 +11,8 @@ import io.gymcrm.entities.Training;
 import io.gymcrm.entities.User;
 import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
-import io.gymcrm.integration.workload.TrainerWorkloadClient;
 import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.TrainerWorkloadPublisher;
 import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.metrics.GymMetrics;
 import io.gymcrm.security.JwtTokenService;
@@ -52,7 +52,7 @@ public class TraineeServiceImpl implements TraineeService {
     private PasswordGenerator passwordGenerator;
     private PasswordEncoder passwordEncoder;
     private JwtTokenService tokenService;
-    private TrainerWorkloadClient workloadClient;
+    private TrainerWorkloadPublisher workloadPublisher;
 
     @Autowired
     public void setMetrics(GymMetrics metrics) {
@@ -75,8 +75,8 @@ public class TraineeServiceImpl implements TraineeService {
     }
 
     @Autowired
-    public void setWorkloadClient(TrainerWorkloadClient workloadClient) {
-        this.workloadClient = workloadClient;
+    public void setWorkloadPublisher(TrainerWorkloadPublisher workloadPublisher) {
+        this.workloadPublisher = workloadPublisher;
     }
 
     @Autowired
@@ -156,7 +156,8 @@ public class TraineeServiceImpl implements TraineeService {
 
     /**
      * Deleting a trainee deletes their trainings too (cascade), which is the only way a training can be
-     * deleted. Each one is reported to the Trainer Workload service first; if that fails, nothing is deleted.
+     * deleted. Each one is reported to the Trainer Workload service through the message queue; the messages
+     * are sent together after the commit, or not at all. If the broker can't be reached, nothing is deleted.
      */
     @Override
     @PreAuthorize(OWNER)
@@ -164,7 +165,7 @@ public class TraineeServiceImpl implements TraineeService {
         Trainee trainee = find(username);
         int trainings = trainee.getTrainings().size();
         for (Training training : trainee.getTrainings()) {
-            workloadClient.report(TrainerWorkloadEvent.of(training, WorkloadAction.DELETE));
+            workloadPublisher.publish(TrainerWorkloadEvent.of(training, WorkloadAction.DELETE));
         }
         traineeDao.delete(trainee);
         log.info("Trainee {} deleted together with {} trainings", username, trainings);

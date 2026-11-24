@@ -6,7 +6,7 @@ import io.gymcrm.entities.User;
 
 import java.time.LocalDate;
 
-/** The request body of POST /api/trainer-workloads in the Trainer Workload service. */
+/** The JSON body of a message on the Trainer Workload service's queue (gymcrm.workload.queue). */
 public record TrainerWorkloadEvent(String trainerUsername,
                                    String trainerFirstName,
                                    String trainerLastName,

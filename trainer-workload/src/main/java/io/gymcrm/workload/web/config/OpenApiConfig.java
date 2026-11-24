@@ -11,10 +11,10 @@ import io.swagger.v3.oas.annotations.security.SecurityScheme;
                 title = "Trainer Workload API",
                 version = "1.0",
                 description = """
-                        Trainers' training minutes per year and month, kept up to date by Gym CRM.
+                        Trainers' training minutes per year and month. Gym CRM keeps them up to date by \
+                        sending added and deleted trainings to the ActiveMQ queue `trainer-workload.updates`.
                         Every endpoint needs a service token from Gym CRM: `Authorization: Bearer <token>` \
-                        with audience `trainer-workload` and the scope `workload.write` (POST) or \
-                        `workload.read` (GET)."""),
+                        with audience `trainer-workload` and the scope `workload.read`."""),
         security = @SecurityRequirement(name = OpenApiConfig.BEARER_TOKEN))
 @SecurityScheme(name = OpenApiConfig.BEARER_TOKEN, type = SecuritySchemeType.HTTP, scheme = "bearer", bearerFormat = "JWT")
 public final class OpenApiConfig {

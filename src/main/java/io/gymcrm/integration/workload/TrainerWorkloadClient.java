@@ -3,18 +3,12 @@ package io.gymcrm.integration.workload;
 import java.util.Optional;
 
 /**
- * Talks to the Trainer Workload service.
+ * Reads from the Trainer Workload service. A read needs an answer right away, so it stays a synchronous
+ * REST call; changes go through the message queue instead ({@link TrainerWorkloadPublisher}).
  *
  * @see RestTrainerWorkloadClient
  */
 public interface TrainerWorkloadClient {
-
-    /**
-     * Reports an added or deleted training.
-     *
-     * @throws io.gymcrm.exceptions.ServiceUnavailableException if the service can't be reached in time
-     */
-    void report(TrainerWorkloadEvent event);
 
     /**
      * The trainer's minutes per month, or empty if no training was ever reported for them.

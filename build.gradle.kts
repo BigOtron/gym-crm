@@ -36,6 +36,7 @@ dependencies {
     // Registers with Eureka and finds the Trainer Workload service there by name (load-balanced).
     implementation(libs.spring.cloud.starter.eureka.client)
     implementation(libs.spring.cloud.starter.circuitbreaker.resilience4j)
+    implementation(libs.spring.boot.starter.activemq)
     // The load balancer's cache of service instances (otherwise it warns about its fallback cache).
     runtimeOnly(libs.caffeine)
     runtimeOnly(libs.postgresql)
@@ -48,6 +49,7 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testImplementation(libs.spring.boot.starter.security.test)
+    testImplementation(libs.activemq.broker)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

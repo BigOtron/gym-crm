@@ -3,7 +3,6 @@ package io.gymcrm.workload.web;
 import io.gymcrm.workload.model.TrainerWorkload;
 import io.gymcrm.workload.service.TrainerNotFoundException;
 import io.gymcrm.workload.service.TrainerWorkloadService;
-import io.gymcrm.workload.service.WorkloadUpdate;
 import io.gymcrm.workload.web.error.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,34 +11,20 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.time.LocalDate;
 import java.time.YearMonth;
 
-import static io.gymcrm.workload.model.ActionType.ADD;
-import static io.gymcrm.workload.model.ActionType.DELETE;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** The controller and the error handler alone; security is in WorkloadApiIntegrationTest. */
 @ExtendWith(MockitoExtension.class)
 class TrainerWorkloadControllerTest {
-
-    private static final String VALID = """
-            {"trainerUsername":"Anna.Lee","trainerFirstName":"Anna","trainerLastName":"Lee","isActive":true,
-             "trainingDate":"2026-11-20","trainingDuration":60,"actionType":"ADD"}""";
 
     @Mock
     private TrainerWorkloadService service;
@@ -51,61 +36,6 @@ class TrainerWorkloadControllerTest {
         mvc = MockMvcBuilders.standaloneSetup(new TrainerWorkloadController(service))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-    }
-
-    private static MockHttpServletRequestBuilder report(String body) {
-        return post("/api/trainer-workloads").contentType(MediaType.APPLICATION_JSON).content(body);
-    }
-
-    @Test
-    void acceptsAddedTraining() throws Exception {
-        mvc.perform(report(VALID))
-                .andExpect(status().isOk())
-                .andExpect(content().string(""));
-
-        verify(service).apply(new WorkloadUpdate("Anna.Lee", "Anna", "Lee", true, LocalDate.of(2026, 11, 20), 60, ADD));
-    }
-
-    @Test
-    void acceptsDeletedTraining() throws Exception {
-        mvc.perform(report(VALID.replace("\"ADD\"", "\"DELETE\"").replace("true", "false")))
-                .andExpect(status().isOk());
-
-        verify(service).apply(new WorkloadUpdate("Anna.Lee", "Anna", "Lee", false, LocalDate.of(2026, 11, 20), 60, DELETE));
-    }
-
-    @Test
-    void rejectsMissingAndInvalidFields() throws Exception {
-        mvc.perform(report("""
-                        {"trainerUsername":" ","trainingDuration":0}"""))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Validation failed"))
-                .andExpect(jsonPath("$.errors.trainerUsername").exists())
-                .andExpect(jsonPath("$.errors.trainerFirstName").exists())
-                .andExpect(jsonPath("$.errors.trainerLastName").exists())
-                .andExpect(jsonPath("$.errors.isActive").exists())
-                .andExpect(jsonPath("$.errors.trainingDate").exists())
-                .andExpect(jsonPath("$.errors.trainingDuration").exists())
-                .andExpect(jsonPath("$.errors.actionType").exists());
-
-        verifyNoInteractions(service);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"\"actionType\":\"ADD\"", "\"trainingDate\":\"2026-11-20\""})
-    void rejectsUnreadableValues(String field) throws Exception {
-        String broken = field.startsWith("\"actionType")
-                ? VALID.replace(field, "\"actionType\":\"UPDATE\"")
-                : VALID.replace(field, "\"trainingDate\":\"20.11.2026\"");
-
-        mvc.perform(report(broken)).andExpect(status().isBadRequest());
-
-        verifyNoInteractions(service);
-    }
-
-    @Test
-    void rejectsBrokenJson() throws Exception {
-        mvc.perform(report("{")).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -173,9 +103,9 @@ class TrainerWorkloadControllerTest {
 
     @Test
     void unexpectedErrorHidesDetails() throws Exception {
-        doThrow(new NullPointerException("secret internals")).when(service).apply(any());
+        when(service.getWorkload("Anna.Lee")).thenThrow(new NullPointerException("secret internals"));
 
-        mvc.perform(report(VALID))
+        mvc.perform(get("/api/trainer-workloads/Anna.Lee"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.detail").value("Unexpected error, please try again later"));
     }

@@ -4,20 +4,14 @@ import io.gymcrm.workload.service.TrainerNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import java.util.Map;
-import java.util.TreeMap;
 
 /** Every error becomes an RFC 9457 problem detail; nothing internal (stack traces, class names) leaks out. */
 @Slf4j
@@ -53,21 +47,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ProblemDetail> handleUnexpected(Exception e) {
         log.error("Unexpected error", e);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error, please try again later");
-    }
-
-    @Override
-    protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException e,
-                                                                  HttpHeaders headers, HttpStatusCode status,
-                                                                  WebRequest request) {
-        Map<String, String> errors = new TreeMap<>();
-        for (FieldError error : e.getBindingResult().getFieldErrors()) {
-            errors.merge(error.getField(), String.valueOf(error.getDefaultMessage()), (a, b) -> a + "; " + b);
-        }
-        ProblemDetail body = e.getBody();
-        body.setDetail("Validation failed");
-        body.setProperty("errors", errors);
-        log.warn("Validation failed: {}", errors);
-        return handleExceptionInternal(e, body, headers, status, request);
     }
 
     private static ResponseEntity<ProblemDetail> problem(HttpStatus status, String detail) {

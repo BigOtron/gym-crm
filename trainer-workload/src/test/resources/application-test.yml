@@ -6,3 +6,8 @@ workload:
   security:
     jwt:
       secret: test-only-workload-secret-with-32-bytes-at-least
+
+spring:
+  activemq:
+    # An in-memory broker inside the test JVM (activemq-broker is a test dependency).
+    broker-url: vm://embedded?broker.persistent=false&broker.useJmx=false&broker.useShutdownHook=false

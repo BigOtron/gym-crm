@@ -30,6 +30,7 @@ dependencies {
     implementation(libs.spring.boot.starter.oauth2.resource.server)
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.cloud.starter.eureka.client)
+    implementation(libs.spring.boot.starter.activemq)
     implementation(libs.swagger.annotations)
 
     compileOnly(libs.lombok)
@@ -38,6 +39,7 @@ dependencies {
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testImplementation(libs.spring.boot.starter.security.test)
+    testImplementation(libs.activemq.broker)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

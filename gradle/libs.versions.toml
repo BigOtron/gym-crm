@@ -24,6 +24,8 @@ spring-boot-starter-security-test = { module = "org.springframework.boot:spring-
 postgresql = { module = "org.postgresql:postgresql" }
 h2 = { module = "com.h2database:h2" }
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine" }
+spring-boot-starter-activemq = { module = "org.springframework.boot:spring-boot-starter-activemq" }
+activemq-broker = { module = "org.apache.activemq:activemq-broker" }
 lombok = { module = "org.projectlombok:lombok" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 

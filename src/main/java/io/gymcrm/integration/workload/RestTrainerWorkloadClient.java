@@ -10,15 +10,14 @@ import org.springframework.web.client.RestClient;
 import java.util.Optional;
 
 /**
- * Calls the Trainer Workload service through a circuit breaker:
+ * Reads workloads from the Trainer Workload service over REST, through a circuit breaker:
  * <ul>
  *   <li>closed: calls go through; connect and read timeouts stop calls that hang;</li>
  *   <li>open: after too many failures, calls fail at once for a while instead of waiting for timeouts,
  *       which protects both services;</li>
  *   <li>half-open: a few trial calls decide whether to close the circuit again.</li>
  * </ul>
- * Every failure becomes a {@link ServiceUnavailableException} (HTTP 503 to our client), and because the
- * call runs inside the service's transaction, the training isn't saved (or the trainee isn't deleted).
+ * An outage becomes a {@link ServiceUnavailableException} (HTTP 503 to our client).
  */
 @Slf4j
 public class RestTrainerWorkloadClient implements TrainerWorkloadClient {
@@ -31,22 +30,6 @@ public class RestTrainerWorkloadClient implements TrainerWorkloadClient {
     public RestTrainerWorkloadClient(RestClient restClient, CircuitBreaker circuitBreaker) {
         this.restClient = restClient;
         this.circuitBreaker = circuitBreaker;
-    }
-
-    @Override
-    public void report(TrainerWorkloadEvent event) {
-        log.debug("Reporting {} of a {} min training on {} for trainer {}", event.actionType(),
-                event.trainingDuration(), event.trainingDate(), event.trainerUsername());
-        circuitBreaker.run(() -> restClient.post()
-                        .uri(TRAINER_WORKLOADS)
-                        .body(event)
-                        .retrieve()
-                        .toBodilessEntity(),
-                failure -> {
-                    throw failed("report a training of trainer " + event.trainerUsername(), failure);
-                });
-        log.info("Reported {} of a training on {} for trainer {} to the workload service", event.actionType(),
-                event.trainingDate(), event.trainerUsername());
     }
 
     @Override

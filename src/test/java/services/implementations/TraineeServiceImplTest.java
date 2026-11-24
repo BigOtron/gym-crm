@@ -12,8 +12,8 @@ import io.gymcrm.exceptions.ConflictException;
 import io.gymcrm.exceptions.NotFoundException;
 import io.gymcrm.exceptions.ServiceUnavailableException;
 import io.gymcrm.entities.Training;
-import io.gymcrm.integration.workload.TrainerWorkloadClient;
 import io.gymcrm.integration.workload.TrainerWorkloadEvent;
+import io.gymcrm.integration.workload.TrainerWorkloadPublisher;
 import io.gymcrm.integration.workload.WorkloadAction;
 import io.gymcrm.security.JwtTokenService;
 import io.gymcrm.security.Role;
@@ -68,7 +68,7 @@ class TraineeServiceImplTest {
     private TrainerDao trainerDao;
 
     @Mock
-    private TrainerWorkloadClient workloadClient;
+    private TrainerWorkloadPublisher workloadPublisher;
 
     @Mock
     private UsernameGenerator usernameGenerator;
@@ -93,7 +93,7 @@ class TraineeServiceImplTest {
         service.setUsernameGenerator(usernameGenerator);
         service.setPasswordGenerator(passwordGenerator);
         service.setTokenService(tokenService);
-        service.setWorkloadClient(workloadClient);
+        service.setWorkloadPublisher(workloadPublisher);
     }
 
     private Trainee givenJohn() {
@@ -258,7 +258,7 @@ class TraineeServiceImplTest {
             service.delete("John.Smith");
 
             verify(traineeDao).delete(john);
-            verifyNoInteractions(workloadClient);
+            verifyNoInteractions(workloadPublisher);
         }
 
         private Training training(Trainee trainee, LocalDate date, int minutes) {
@@ -281,18 +281,18 @@ class TraineeServiceImplTest {
 
             service.delete("John.Smith");
 
-            verify(workloadClient).report(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true,
+            verify(workloadPublisher).publish(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true,
                     LocalDate.of(2026, 11, 3), 60, WorkloadAction.DELETE));
-            verify(workloadClient).report(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true,
+            verify(workloadPublisher).publish(new TrainerWorkloadEvent("Anna.Lee", "Anna", "Lee", true,
                     LocalDate.of(2026, 12, 1), 45, WorkloadAction.DELETE));
             verify(traineeDao).delete(john);
         }
 
         @Test
-        void keepsTheTraineeWhenTheWorkloadServiceIsUnavailable() {
+        void keepsTheTraineeWhenTheMessageBrokerIsUnavailable() {
             Trainee john = givenJohn();
             training(john, LocalDate.of(2026, 11, 3), 60);
-            doThrow(new ServiceUnavailableException("down", null)).when(workloadClient).report(any());
+            doThrow(new ServiceUnavailableException("down", null)).when(workloadPublisher).publish(any());
 
             assertThrows(ServiceUnavailableException.class, () -> service.delete("John.Smith"));
             verify(traineeDao, never()).delete(any());

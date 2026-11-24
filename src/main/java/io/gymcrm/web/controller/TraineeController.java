@@ -89,8 +89,7 @@ public class TraineeController {
     @ApiResponse(responseCode = "401", description = "Missing, invalid or expired token")
     @ApiResponse(responseCode = "403", description = "Not a trainee, or someone else's profile")
     @ApiResponse(responseCode = "404", description = "No trainee with this username")
-    @ApiResponse(responseCode = "502", description = "The Trainer Workload service rejected a training; nothing deleted")
-    @ApiResponse(responseCode = "503", description = "The Trainer Workload service is unavailable; nothing deleted")
+    @ApiResponse(responseCode = "503", description = "The message broker is unavailable; nothing deleted")
     public ResponseEntity<Void> delete(@Parameter(description = "Trainee's username", example = "John.Smith")
                                        @PathVariable String username) {
         facade.deleteTrainee(username);

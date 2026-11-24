@@ -8,12 +8,14 @@ import java.time.Duration;
  * gymcrm.workload.* settings (defaults in application.yml).
  *
  * @param enabled        false: trainings are not reported anywhere (standalone profile and most tests)
- * @param url            base URL; the host is the Eureka service name, which the load balancer resolves
+ * @param queue          the ActiveMQ queue added and deleted trainings are sent to
+ * @param url            base URL for reads; the host is the Eureka service name, which the load balancer resolves
  * @param connectTimeout how long to wait for a connection
  * @param readTimeout    how long to wait for the response
  */
 @ConfigurationProperties("gymcrm.workload")
 public record WorkloadProperties(boolean enabled,
+                                 String queue,
                                  String url,
                                  Duration connectTimeout,
                                  Duration readTimeout,

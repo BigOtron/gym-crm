@@ -22,16 +22,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * Only Gym CRM may call this service. It signs a short-lived service token with a secret both services
- * share (HMAC-SHA256). The token must come from Gym CRM (issuer), be meant for this service (audience),
- * and carry the scope of the operation: workload.write to report trainings, workload.read to read them.
+ * Only Gym CRM may call this service's REST API. It signs a short-lived service token with a secret both
+ * services share (HMAC-SHA256). The token must come from Gym CRM (issuer), be meant for this service
+ * (audience), and carry the workload.read scope. Trainings are not reported over REST any more but through
+ * the message queue, which is protected by the broker's own login.
  */
 @Configuration
 public class SecurityConfig {
 
     public static final String ISSUER = "gym-crm";
     public static final String AUDIENCE = "trainer-workload";
-    public static final String WRITE_SCOPE = "workload.write";
     public static final String READ_SCOPE = "workload.read";
 
     private static final int MIN_SECRET_BYTES = 32;
@@ -46,7 +46,6 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/error").permitAll()
                         // Spring Security turns each scope in the token into a "SCOPE_..." authority.
-                        .requestMatchers(HttpMethod.POST, "/api/trainer-workloads").hasAuthority("SCOPE_" + WRITE_SCOPE)
                         .requestMatchers(HttpMethod.GET, "/api/trainer-workloads/**").hasAuthority("SCOPE_" + READ_SCOPE)
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(server -> server

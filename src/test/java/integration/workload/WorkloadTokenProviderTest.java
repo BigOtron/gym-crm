@@ -36,7 +36,7 @@ class WorkloadTokenProviderTest {
         assertEquals("gym-crm", jwt.getClaimAsString("iss"));
         assertEquals("gym-crm", jwt.getSubject());
         assertEquals(List.of("trainer-workload"), jwt.getAudience());
-        assertEquals("workload.write workload.read", jwt.getClaimAsString("scope"));
+        assertEquals("workload.read", jwt.getClaimAsString("scope"));
         assertEquals(NOW, jwt.getIssuedAt());
         assertEquals(NOW.plus(Duration.ofMinutes(5)), jwt.getExpiresAt());
     }
