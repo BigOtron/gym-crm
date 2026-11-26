@@ -388,6 +388,8 @@ Example: `GET /api/trainees/John.Smith/trainings?from=2026-09-01&trainerName=ann
 | 409    | Activating an active user or de-activating an inactive one                    |
 | 429    | Login blocked after too many failed attempts; see `Retry-After`               |
 | 500    | Unexpected error; the details are logged, not returned                        |
+| 502    | Reading a workload: the workload service rejected the call (e.g. different `WORKLOAD_JWT_SECRET`s) |
+| 503    | Adding a training or deleting a trainee: the message broker is down, nothing is saved. Reading a workload: the workload service is down, too slow, or its circuit is open |
 
 ## Logging
 
@@ -423,6 +425,9 @@ Restrict the public endpoints at the network level on real servers.
 - **Custom metrics:** `gymcrm_registrations_total`, `gymcrm_logins_total` (success, failure, blocked),
   `gymcrm_authentication_failures_total`, `gymcrm_trainings_added_total`, `gymcrm_trainings_duration_minutes`
   and `gymcrm_users_active`.
+- **No broker health check.** Spring's JMS health check is turned off in both services
+  (`management.health.jms.enabled: false`): a broker outage only stops adding trainings and deleting trainees,
+  so it shouldn't mark the whole service `DOWN` for Docker and Eureka.
 
 ## Project structure
 
@@ -430,8 +435,9 @@ Restrict the public endpoints at the network level on real servers.
 io.gymcrm
 ├── Application                  the Spring Boot entry point
 ├── config                       RequiredSettingsCheck: stops the start-up if a required setting is missing
-├── integration.workload         TrainerWorkloadClient (REST + circuit breaker, or disabled), its config,
-│                                WorkloadTokenProvider (service JWT), the request and response records
+├── integration.workload         TrainerWorkloadPublisher (JMS messages, or disabled) and WorkloadMessagingConfig;
+│                                TrainerWorkloadClient for reads (REST + circuit breaker, or disabled), its
+│                                config, WorkloadTokenProvider (service JWT), the event and response records
 ├── security                     SecurityConfig (filter chain, CORS, BCrypt), JwtConfig, JwtTokenService,
 │                                TokenRevocationService, LoginAttemptService, GymUserDetailsService,
 │                                JwtLogoutHandler, SecurityErrorHandler
@@ -439,7 +445,7 @@ io.gymcrm
 ├── dto                          facade inputs and results: Credentials, IssuedToken, CreatedProfile, ...
 ├── exceptions                   AuthenticationException (401), NotFoundException (404),
 │                                ConflictException (409), LoginBlockedException (429),
-│                                ServiceUnavailableException (503)
+│                                BadGatewayException (502), ServiceUnavailableException (503)
 ├── dao                          DAOs using the EntityManager and the Criteria API
 ├── services                     business logic, validation, @PreAuthorize rules, @Transactional
 ├── facade                       GymFacade: single entry point, delegates to the services
@@ -457,6 +463,8 @@ io.gymcrm
 
 ```
 trainer-workload: io.gymcrm.workload
+├── messaging                    TrainerWorkloadListener (the queue's consumer), WorkloadMessageReader (JSON +
+│                                validation), DeadLetterQueue, MessagingConfig (redelivery with back-off)
 ├── model                        TrainerWorkload (years → months → minutes), ActionType
 ├── repository                   InMemoryTrainerWorkloadRepository: ConcurrentHashMap, atomic per trainer
 ├── service                      TrainerWorkloadServiceImpl: ADD/DELETE, reading
@@ -484,24 +492,39 @@ entity classes, and fields such as passwords can't leak by accident.
   `RestApiIntegrationTest` (successful paths), `ErrorHandlingIntegrationTest` (every error status),
   `LoggingIntegrationTest`, `ActuatorIntegrationTest` and `PrometheusIntegrationTest`.
 - **`ProfilesTest`** loads the real configuration of every environment.
+- **`WorkloadMessagingIntegrationTest`** runs Gym CRM against an in-memory ActiveMQ broker: the exact message
+  body and its transaction id, one `DELETE` per training when a trainee is deleted, and no message until the
+  database transaction commits (none at all on a rollback).
+- **`BrokerUnavailableIntegrationTest`** points Gym CRM at a broker that doesn't exist: adding a training answers
+  503 and saves nothing, while the other endpoints and the health check keep working.
 - **`TrainerWorkloadIntegrationTest`** runs Gym CRM with the real workload client against a fake workload
-  service (the JDK's HTTP server), found by name through the load balancer: the request body, the service
-  token, the transaction id, a timeout and a 500 (503, nothing saved or deleted), the circuit opening, and the
-  trainer's workload endpoint.
-- **Trainer Workload**: unit tests for the model, the repository (including concurrent updates), the service
-  and the controller, and `WorkloadApiIntegrationTest` with real tokens (missing, forged, expired, wrong issuer,
-  audience or scope).
+  service (the JDK's HTTP server), found by name through the load balancer: reading a trainer's workload with
+  the `workload.read` token and the transaction id, a timeout (503), a rejection (401 → 502, the circuit stays
+  closed), the circuit opening, and the trainer's workload endpoint (who may see it, empty workloads, status).
+- **`DisabledWorkloadIntegrationTest`** checks that with the integration disabled nothing is sent or called.
+- **Trainer Workload**: unit tests for the model, the repository (including concurrent updates), the service,
+  the controller, `WorkloadMessageReaderTest` and `TrainerWorkloadListenerTest`, and two integration tests:
+  - `WorkloadApiIntegrationTest` with real tokens (missing, forged, expired, wrong issuer, audience or scope);
+    a POST answers 403, since updates only arrive through the queue.
+  - `WorkloadMessagingIntegrationTest` with an in-memory broker: messages processed in order, invalid or
+    unreadable messages moved to the dead letter queue, a failure retried and then processed, and a message
+    that keeps failing moved after 4 attempts without blocking the next one.
 - **`ApiDocumentationTest`** checks that the Swagger annotations are complete and agree with the code.
 
 ## Known limitations
 
 - The Trainer Workload service keeps its data in memory: a restart loses it, and trainings added before are
   then missing there (a later `DELETE` of one is logged as a warning and never makes a month negative).
-- Calls are synchronous. If the workload service applied a change but the answer was lost (e.g. a read
-  timeout), Gym CRM rolls back while the workload keeps the change; deleting a trainee with several trainings
-  can fail halfway the same way. A message queue (e.g. ActiveMQ) with retries would make the hand-over reliable.
-- The workload call runs inside Gym CRM's database transaction, so a slow workload service holds a database
-  connection for up to the read timeout.
+- **A message can be processed twice.** ActiveMQ delivers at least once: if the workload service applies a
+  message but crashes before acknowledging it, the message is delivered again and counted twice. A message id
+  remembered by the workload service (an idempotent consumer) would prevent this.
+- **A message can be lost in one narrow case.** The database commits first, then the JMS transaction; if the
+  broker fails between the two, the training is saved but its message is gone. A transactional outbox (the
+  message saved in the database with the training, sent by a separate job) would close this gap.
+- **Reads are eventually consistent.** Right after adding a training, reading the trainer's workload can still
+  show the old total until the message has been processed.
+- While the broker is unreachable, adding a training holds its database connection for up to the broker's
+  2 s connection timeout before answering 503.
 
 - Failed-login counts and revoked tokens are kept in memory: they are lost on restart and not shared between
   instances. Running several instances would need a shared store such as Redis.
